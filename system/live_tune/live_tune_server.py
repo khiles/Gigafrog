@@ -282,18 +282,26 @@ def _write_param(key: str, value: Any) -> bool:
         pass
 
     elif meta['type'] == 'int':
-      s = str(int(value))
-      params.put(key, s)
+      iv = int(value)
+      params.put(key, iv)
       try:
-        params_m.put(key, s)
+        params_m.put(key, iv)
       except Exception:
         pass
 
-    elif meta['type'] in ('float', 'string'):
-      s = str(value)
-      params.put(key, s)
+    elif meta['type'] == 'float':
+      fv = float(value)
+      params.put(key, fv)
       try:
-        params_m.put(key, s)
+        params_m.put(key, fv)
+      except Exception:
+        pass
+
+    elif meta['type'] == 'string':
+      sv = str(value)
+      params.put(key, sv)
+      try:
+        params_m.put(key, sv)
       except Exception:
         pass
 
@@ -304,7 +312,8 @@ def _write_param(key: str, value: Any) -> bool:
       pass
 
     return True
-  except Exception:
+  except Exception as exc:
+    logging.getLogger('live_tune').warning('_write_param %s failed: %s', key, exc)
     return False
 
 
@@ -376,7 +385,10 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
           cmd = json.loads(msg.data)
           if cmd.get('action') == 'set_param':
             ok = _write_param(cmd['key'], cmd['value'])
-            await ws.send_str(json.dumps({'type': 'ack', 'key': cmd['key'], 'success': ok}))
+            ack: dict[str, Any] = {'type': 'ack', 'key': cmd['key'], 'success': ok}
+            if not ok:
+              ack['error'] = f'write failed for key={cmd["key"]!r}'
+            await ws.send_str(json.dumps(ack))
         except Exception as exc:
           await ws.send_str(json.dumps({'type': 'error', 'message': str(exc)}))
       elif msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
@@ -443,7 +455,7 @@ header h1{font-size:16px;font-weight:600}
 .tdesc{color:#8b949e;font-size:11px}
 .ack{font-size:10px;color:#3fb950;opacity:0;transition:opacity .3s}
 .ack.show{opacity:1}
-.sw{position:relative;width:40px;height:22px;flex-shrink:0;margin-top:2px}
+.sw{display:inline-block;position:relative;width:40px;height:22px;flex-shrink:0;margin-top:2px}
 .sw input{opacity:0;width:0;height:0}
 .track{position:absolute;cursor:pointer;top:0;right:0;bottom:0;left:0;background:#555d68;border-radius:22px;transition:background .2s}
 .track:before{content:'';position:absolute;width:16px;height:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.4)}
@@ -649,7 +661,7 @@ function connect() {
     if (msg.type === 'live') updateLive(msg.data);
     else if (msg.type === 'ack') {
       if (msg.success) flashAck(msg.key);
-      else showToast(`\u26a0 Failed to write "${msg.key}" — key may not exist on this build`);
+      else showToast(`\u26a0 Failed to write "${msg.key}"` + (msg.error ? `: ${msg.error}` : ''));
     }
   };
 }
