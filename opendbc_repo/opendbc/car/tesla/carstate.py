@@ -144,6 +144,16 @@ class CarState(CarStateBase):
     # FrogPilot variables
     fp_ret = custom.FrogPilotCarState.new_message()
 
+    # Tesla's camera+map fused speed limit (the sign shown on the dashboard in red)
+    # DAS_fusedSpeedLimit: raw values 0=UNKNOWN_SNA, 31=NONE, otherwise raw*5 in mph or kph
+    fused_limit_raw = int(cp_ap_party.vl["DAS_status"]["DAS_fusedSpeedLimit"])
+    if fused_limit_raw not in (0, 31):
+      fused_limit = fused_limit_raw * 5
+      if speed_units == "KPH":
+        fp_ret.dashboardSpeedLimit = fused_limit * CV.KPH_TO_MS
+      elif speed_units == "MPH":
+        fp_ret.dashboardSpeedLimit = fused_limit * CV.MPH_TO_MS
+
     return ret, fp_ret
 
   def update_legacy(self, can_parsers) -> structs.CarState:
