@@ -149,7 +149,7 @@ class SelfdriveD:
       self.events.add(EventName.dashcamMode, static=True)
 
     # FrogPilot variables
-    self.sm = self.sm.extend(['frogpilotCarState', 'frogpilotPlan'])
+    self.sm = self.sm.extend(['frogpilotCarState', 'frogpilotPlan', 'frogpilotRadarState'])
     self.pm = self.pm.extend(['frogpilotOnroadEvents', 'frogpilotSelfdriveState'])
 
     self.frogpilot_toggles = get_frogpilot_toggles()
@@ -290,10 +290,15 @@ class SelfdriveD:
     # ******************************************************************************************
 
     # Handle lane change
+    # Merge hardware BSM (from car CAN) with software BSM (from radar tracks).
+    # Software BSM activates only when the car has no hardware sensor on that side.
+    _sw_bsm = self.sm['frogpilotRadarState']
+    bsm_left  = CS.leftBlindspot  or (not CS.leftBlindspot  and _sw_bsm.softwareBsmLeft)
+    bsm_right = CS.rightBlindspot or (not CS.rightBlindspot and _sw_bsm.softwareBsmRight)
     if self.sm['modelV2'].meta.laneChangeState == LaneChangeState.preLaneChange:
       direction = self.sm['modelV2'].meta.laneChangeDirection
-      if (CS.leftBlindspot and direction == LaneChangeDirection.left) or \
-         (CS.rightBlindspot and direction == LaneChangeDirection.right):
+      if (bsm_left and direction == LaneChangeDirection.left) or \
+         (bsm_right and direction == LaneChangeDirection.right):
         if self.frogpilot_toggles.loud_blindspot_alert:
           self.frogpilot_events.add(FrogPilotEventName.laneChangeBlockedLoud)
         else:

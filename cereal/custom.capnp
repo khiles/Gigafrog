@@ -188,6 +188,9 @@ struct FrogPilotPlan @0xf98d843bfd7004a3 {
 struct FrogPilotRadarState @0xb86e6369214c01c8 {
   leadLeft @0 :LeadData;
   leadRight @1 :LeadData;
+  # Software-synthesised BSM for vehicles without OEM hardware sensors
+  softwareBsmLeft @2 :Bool;
+  softwareBsmRight @3 :Bool;
 
   struct LeadData {
     dRel @0 :Float32;

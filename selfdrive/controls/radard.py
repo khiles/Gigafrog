@@ -122,6 +122,29 @@ class Track:
     return ret
 
   # FrogPilot variables
+  def potential_blindspot(self, left: bool) -> bool:
+    """True when this track occupies the blind spot zone on the given side.
+
+    Provides software BSM for vehicles without OEM hardware sensors by checking
+    whether a radar track is positioned alongside the car:
+      - Longitudinal: from 5 m behind to 30 m ahead of the ego vehicle
+      - Lateral: 1.5 – 4.5 m from centre (roughly one lane width each side)
+      - Speed: track must be moving (vLeadK >= 1 m/s) to exclude parked cars
+
+    ``yRel`` is stored as -LAT_DIST in the openpilot convention, so
+    ``-yRel`` gives the lateral position in the standard vehicle frame
+    (positive = left, negative = right).
+    """
+    if self.vLeadK < 1.0:
+      return False
+    if not (-5.0 < self.dRel < 30.0):
+      return False
+    lat_pos = -self.yRel
+    if left:
+      return 1.5 < lat_pos < 4.5
+    else:
+      return -4.5 < lat_pos < -1.5
+
   def potential_adjacent_lead(self, left: bool, model_data: capnp._DynamicStructReader):
     if self.vLeadK < 1 or self.leadTrackID == self.identifier:
       return False
@@ -333,6 +356,16 @@ class RadarD:
     if self.ready and (self.frogpilot_toggles.adjacent_lead_tracking or self.frogpilot_toggles.human_lane_changes):
       self.frogpilot_radar_state.leadLeft = get_adjacent_lead(self.tracks, sm['modelV2'], left=True)
       self.frogpilot_radar_state.leadRight = get_adjacent_lead(self.tracks, sm['modelV2'], left=False)
+
+    # Software BSM: radar-based blind spot detection for vehicles without OEM hardware.
+    # Runs unconditionally; selfdrived and UI only use it when hardware BSM is absent.
+    if self.ready:
+      self.frogpilot_radar_state.softwareBsmLeft = any(
+        t.potential_blindspot(left=True) for t in self.tracks.values()
+      )
+      self.frogpilot_radar_state.softwareBsmRight = any(
+        t.potential_blindspot(left=False) for t in self.tracks.values()
+      )
 
     self.frogpilot_toggles = get_frogpilot_toggles(sm)
 

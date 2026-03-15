@@ -160,8 +160,12 @@ void FrogPilotAnnotatedCameraWidget::updateState(const UIState &s, const FrogPil
   }
 
   accelerationEgo = carState.getAEgo();
-  blindspotLeft = carState.getLeftBlindspot();
-  blindspotRight = carState.getRightBlindspot();
+
+  // Use hardware BSM when available; fall back to software radar-based BSM for
+  // legacy vehicles whose OEM sensors are absent or unsupported.
+  const cereal::FrogPilotRadarState::Reader &frogpilotRadarState = fpsm["frogpilotRadarState"].getFrogpilotRadarState();
+  blindspotLeft  = carState.getLeftBlindspot()  || frogpilotRadarState.getSoftwareBsmLeft();
+  blindspotRight = carState.getRightBlindspot() || frogpilotRadarState.getSoftwareBsmRight();
   blinkerLeft = carState.getLeftBlinker();
   blinkerRight = carState.getRightBlinker();
   brakeLights = frogpilotCarState.getBrakeLights();

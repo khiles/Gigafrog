@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 """
-Live Tune Dashboard — real-time parameter monitoring and tuning via web browser.
+Live Tune Dashboard — real-time parameter monitoring and tuning.
 
-Usage:
-  python3 live_tune_server.py
+Auto-started by the manager on boot. Also runnable standalone:
+  python3 -m openpilot.system.live_tune.live_tune_server
 
-Then open http://<device-ip>:8765 in any browser on the same network.
-The dashboard streams live torque/vehicle parameters and allows on-the-fly
-adjustment of key openpilot settings without rebooting.
+Open  http://<device-ip>:8765  in any browser on the same network.
+
+Parameter write path
+--------------------
+1. Write to persistent Params() so the value survives reboots.
+2. Mirror to Params(memory=True) for processes that read from shared memory.
+3. Set FrogPilotTogglesUpdated=True in memory so frogpilot_process picks up
+   all FrogPilot toggle changes immediately and republishes frogpilotPlan.
+   Processes reading frogpilotToggles (controlsd, selfdrived, …) then see
+   the new values within one planning cycle (~100 ms).
 """
 
 import asyncio
@@ -23,73 +30,275 @@ from openpilot.common.params import Params
 PORT = 8765
 CEREAL_SERVICES = ['liveTorqueParameters', 'liveParameters', 'carState', 'controlsState']
 
-# Parameters exposed for live read/write — edit this dict to add more
-TUNABLE_PARAMS: dict[str, dict] = {
+# ── Parameter definitions ────────────────────────────────────────────────────
+# type: 'bool' | 'int' | 'float' | 'string'
+# category: used to group cards in the UI
+
+PARAMS: dict[str, dict] = {
+
+  # ── Experimental / Personality ──────────────────────────────────────────
   'ExperimentalMode': {
-    'type': 'bool',
-    'label': 'Experimental Mode',
+    'type': 'bool', 'label': 'Experimental Mode',
+    'category': 'core', 'desc': 'Enable openpilot experimental driving mode',
   },
   'AlphaLongitudinalEnabled': {
-    'type': 'bool',
-    'label': 'Alpha Longitudinal',
+    'type': 'bool', 'label': 'Alpha Longitudinal',
+    'category': 'core', 'desc': 'Use openpilot for gas/brake on supported cars',
   },
   'LongitudinalPersonality': {
-    'type': 'int',
-    'label': 'Longitudinal Personality',
-    'min': 0,
-    'max': 3,
+    'type': 'int', 'label': 'Longitudinal Personality', 'category': 'core',
+    'min': 0, 'max': 3,
     'options': {0: 'Aggressive', 1: 'Standard', 2: 'Relaxed', 3: 'Traffic'},
+    'desc': 'Default following-distance profile',
   },
+  'ConditionalExperimental': {
+    'type': 'bool', 'label': 'Conditional Experimental Mode',
+    'category': 'core', 'desc': 'Auto-switch to experimental mode at intersections, curves, etc.',
+  },
+
+  # ── Lateral control ─────────────────────────────────────────────────────
+  'AlwaysOnLateral': {
+    'type': 'bool', 'label': 'Always On Lateral',
+    'category': 'lateral', 'desc': 'Keep steering active even when cruise is disengaged',
+  },
+  'NudgelessLaneChange': {
+    'type': 'bool', 'label': 'Nudgeless Lane Change',
+    'category': 'lateral', 'desc': 'Lane change triggers on blinker only (no steering nudge)',
+  },
+  'OneLaneChange': {
+    'type': 'bool', 'label': 'One Lane Change Per Signal',
+    'category': 'lateral', 'desc': 'Complete only one lane change per blinker activation',
+  },
+  'PauseLateralOnSignal': {
+    'type': 'bool', 'label': 'Pause Lateral On Signal',
+    'category': 'lateral', 'desc': 'Temporarily stop lateral control while blinker is active',
+  },
+  'TurnDesires': {
+    'type': 'bool', 'label': 'Turn Desires',
+    'category': 'lateral', 'desc': 'Use turn desires for better low-speed cornering',
+  },
+
+  # ── Longitudinal control ─────────────────────────────────────────────────
+  'AggressiveFollow': {
+    'type': 'float', 'label': 'Aggressive Follow Distance (s)', 'category': 'longitudinal',
+    'min': 1.0, 'max': 5.0, 'step': 0.1, 'desc': 'Time gap for Aggressive personality',
+  },
+  'StandardFollow': {
+    'type': 'float', 'label': 'Standard Follow Distance (s)', 'category': 'longitudinal',
+    'min': 1.0, 'max': 5.0, 'step': 0.1, 'desc': 'Time gap for Standard personality',
+  },
+  'RelaxedFollow': {
+    'type': 'float', 'label': 'Relaxed Follow Distance (s)', 'category': 'longitudinal',
+    'min': 1.0, 'max': 5.0, 'step': 0.1, 'desc': 'Time gap for Relaxed personality',
+  },
+  'TrafficFollow': {
+    'type': 'float', 'label': 'Traffic Follow Distance (s)', 'category': 'longitudinal',
+    'min': 0.5, 'max': 5.0, 'step': 0.1, 'desc': 'Time gap for Traffic mode',
+  },
+  'CurveSpeedController': {
+    'type': 'bool', 'label': 'Curve Speed Controller',
+    'category': 'longitudinal', 'desc': 'Automatically slow down for curves',
+  },
+  'HumanAcceleration': {
+    'type': 'bool', 'label': 'Human-Like Acceleration',
+    'category': 'longitudinal', 'desc': 'Smoother, more natural acceleration profiles',
+  },
+  'SmoothBraking': {
+    'type': 'bool', 'label': 'Smooth Braking',
+    'category': 'longitudinal', 'desc': 'Smoother deceleration behind slower traffic',
+  },
+  'AggressiveAcceleration': {
+    'type': 'bool', 'label': 'Aggressive Acceleration',
+    'category': 'longitudinal', 'desc': 'More rapid acceleration from stops',
+  },
+  'SpeedLimitController': {
+    'type': 'bool', 'label': 'Speed Limit Controller',
+    'category': 'longitudinal', 'desc': 'Adjust cruise speed to match posted limit',
+  },
+
+  # ── Safety & Alerts ──────────────────────────────────────────────────────
+  'LoudBlindspotAlert': {
+    'type': 'bool', 'label': 'Loud Blind Spot Alert',
+    'category': 'safety', 'desc': 'Louder alert when changing lanes into an occupied blind spot',
+  },
+  'GreenLightAlert': {
+    'type': 'bool', 'label': 'Green Light Alert',
+    'category': 'safety', 'desc': 'Alert when traffic light ahead turns green',
+  },
+  'LeadDepartingAlert': {
+    'type': 'bool', 'label': 'Lead Departing Alert',
+    'category': 'safety', 'desc': 'Alert when the lead vehicle pulls away after a stop',
+  },
+  'BlindSpotPath': {
+    'type': 'bool', 'label': 'Blind Spot Path Overlay',
+    'category': 'safety', 'desc': 'Highlight blind spot zones on the road view',
+  },
+
+  # ── Advanced tuning ──────────────────────────────────────────────────────
   'ForceAutoTune': {
-    'type': 'bool',
-    'label': 'Force Auto Tune (FrogPilot)',
+    'type': 'bool', 'label': 'Force Auto Tune',
+    'category': 'tuning', 'desc': 'Always use live-learned torque parameters (ignores static car data)',
+  },
+  'NNFF': {
+    'type': 'bool', 'label': 'Neural Network Feedforward (NNFF)',
+    'category': 'tuning', 'desc': 'ML-based steering feedforward for torque cars',
+  },
+  'NNFFLite': {
+    'type': 'bool', 'label': 'NNFF Lite',
+    'category': 'tuning', 'desc': 'Lighter-weight NNFF variant for lower-end hardware',
+  },
+  'AdvancedLateralTune': {
+    'type': 'bool', 'label': 'Advanced Lateral Tune',
+    'category': 'tuning', 'desc': 'Unlock advanced lateral tuning options',
+  },
+  'SteerFriction': {
+    'type': 'float', 'label': 'Steer Friction Override', 'category': 'tuning',
+    'min': 0.0, 'max': 0.5, 'step': 0.005, 'desc': 'Override learned friction coefficient',
+  },
+  'SteerKP': {
+    'type': 'float', 'label': 'Steer KP Override', 'category': 'tuning',
+    'min': 0.1, 'max': 2.0, 'step': 0.05, 'desc': 'Override lateral proportional gain',
   },
   'TrafficMode': {
-    'type': 'bool',
-    'label': 'Traffic Mode (FrogPilot)',
+    'type': 'bool', 'label': 'Traffic Mode',
+    'category': 'tuning', 'desc': 'Tighter following optimised for stop-and-go traffic',
+  },
+
+  # ── UI Customisation ─────────────────────────────────────────────────────
+  'DeveloperUI': {
+    'type': 'bool', 'label': 'Developer UI',
+    'category': 'ui', 'desc': 'Show CPU/GPU/memory usage, IP address, FPS, etc.',
+  },
+  'CustomUI': {
+    'type': 'bool', 'label': 'Custom UI Elements',
+    'category': 'ui', 'desc': 'Enable FrogPilot custom HUD widgets',
+  },
+  'ModelUI': {
+    'type': 'bool', 'label': 'Model Visualisation',
+    'category': 'ui', 'desc': 'Enhanced path, lane-line, and lead visualisation',
+  },
+  'AdjacentLeadTracking': {
+    'type': 'bool', 'label': 'Adjacent Lane Tracking',
+    'category': 'ui', 'desc': 'Display adjacent lane vehicle positions on HUD',
+  },
+  'PathWidth': {
+    'type': 'float', 'label': 'Path Width (m)', 'category': 'ui',
+    'min': 1.0, 'max': 4.0, 'step': 0.1, 'desc': 'Visual width of the predicted path overlay',
+  },
+  'ScreenBrightness': {
+    'type': 'int', 'label': 'Screen Brightness (%)', 'category': 'ui',
+    'min': 1, 'max': 100, 'desc': 'Onroad display brightness',
+  },
+  'CameraView': {
+    'type': 'int', 'label': 'Camera View', 'category': 'ui',
+    'min': 0, 'max': 3,
+    'options': {0: 'Auto', 1: 'Wide', 2: 'Driver', 3: 'Rear'},
+    'desc': 'Default camera feed shown on HUD',
+  },
+
+  # ── Device Management ────────────────────────────────────────────────────
+  'HigherBitrate': {
+    'type': 'bool', 'label': 'Higher Bitrate Recording',
+    'category': 'device', 'desc': 'Record dashcam at higher quality (uses more storage)',
+  },
+  'IncreaseThermalLimits': {
+    'type': 'bool', 'label': 'Increase Thermal Limits',
+    'category': 'device', 'desc': 'Allow device to run hotter before throttling (use with caution)',
+  },
+  'NoLogging': {
+    'type': 'bool', 'label': 'Disable Logging',
+    'category': 'device', 'desc': 'Do not record any driving data',
+  },
+  'NoUploads': {
+    'type': 'bool', 'label': 'Disable Uploads',
+    'category': 'device', 'desc': 'Do not upload driving data to comma/FrogPilot servers',
+  },
+
+  # ── Mapbox API Keys ──────────────────────────────────────────────────────
+  'MapboxPublicKey': {
+    'type': 'string', 'label': 'Mapbox Public Key',
+    'category': 'mapbox', 'desc': 'pk.eyJ1… — required for navigation maps',
+    'placeholder': 'pk.eyJ1...',
+  },
+  'MapboxSecretKey': {
+    'type': 'string', 'label': 'Mapbox Secret Key',
+    'category': 'mapbox', 'desc': 'sk.eyJ1… — required for turn-by-turn routing',
+    'placeholder': 'sk.eyJ1...', 'secret': True,
   },
 }
 
+# ── Param read / write helpers ───────────────────────────────────────────────
 
 def _read_all_params() -> dict[str, Any]:
-  params = Params()
+  p = Params()
   out: dict[str, Any] = {}
-  for key, meta in TUNABLE_PARAMS.items():
+  for key, meta in PARAMS.items():
     try:
       if meta['type'] == 'bool':
-        out[key] = params.get_bool(key)
-      elif meta['type'] == 'int':
-        raw = params.get(key)
-        out[key] = int(raw.decode() if isinstance(raw, bytes) else raw) if raw is not None else None
-      elif meta['type'] == 'float':
-        raw = params.get(key)
-        out[key] = float(raw.decode() if isinstance(raw, bytes) else raw) if raw is not None else None
+        out[key] = p.get_bool(key)
       else:
-        out[key] = None
+        raw = p.get(key)
+        if raw is None:
+          out[key] = None
+          continue
+        val = raw.decode() if isinstance(raw, bytes) else str(raw)
+        if meta['type'] == 'int':
+          out[key] = int(val)
+        elif meta['type'] == 'float':
+          out[key] = float(val)
+        else:
+          out[key] = val  # string
     except Exception:
       out[key] = None
   return out
 
 
 def _write_param(key: str, value: Any) -> bool:
-  if key not in TUNABLE_PARAMS:
+  if key not in PARAMS:
     return False
-  params = Params()
-  meta = TUNABLE_PARAMS[key]
+  meta = PARAMS[key]
+  params  = Params()
+  params_m = Params(memory=True)
+
   try:
     if meta['type'] == 'bool':
-      params.put_bool(key, bool(value))
+      b = bool(value)
+      params.put_bool(key, b)
+      try:
+        params_m.put_bool(key, b)
+      except Exception:
+        pass
+
     elif meta['type'] == 'int':
-      params.put(key, str(int(value)))
-    elif meta['type'] == 'float':
-      params.put(key, str(float(value)))
+      s = str(int(value))
+      params.put(key, s)
+      try:
+        params_m.put(key, s)
+      except Exception:
+        pass
+
+    elif meta['type'] in ('float', 'string'):
+      s = str(value)
+      params.put(key, s)
+      try:
+        params_m.put(key, s)
+      except Exception:
+        pass
+
+    # Signal FrogPilot to reload all toggle values on the next planning cycle
+    try:
+      params_m.put_bool("FrogPilotTogglesUpdated", True)
+    except Exception:
+      pass
+
     return True
   except Exception:
     return False
 
 
+# ── WebSocket live-data loop ──────────────────────────────────────────────────
+
 async def _ws_send_loop(ws: web.WebSocketResponse) -> None:
-  """Stream live cereal data to the connected WebSocket client at 4 Hz."""
   sm = messaging.SubMaster(CEREAL_SERVICES)
   while not ws.closed:
     try:
@@ -130,7 +339,7 @@ async def _ws_send_loop(ws: web.WebSocketResponse) -> None:
       if sm.updated['controlsState']:
         ctrl = sm['controlsState']
         data['controls'] = {
-          'enabled':      bool(ctrl.enabled),
+          'enabled':       bool(ctrl.enabled),
           'lateralActive': bool(ctrl.lateralActive),
         }
 
@@ -139,7 +348,7 @@ async def _ws_send_loop(ws: web.WebSocketResponse) -> None:
     except Exception as exc:
       logging.getLogger('live_tune').warning('WS send error: %s', exc)
 
-    await asyncio.sleep(0.25)  # 4 Hz
+    await asyncio.sleep(0.25)
 
 
 async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
@@ -154,8 +363,8 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
         try:
           cmd = json.loads(msg.data)
           if cmd.get('action') == 'set_param':
-            success = _write_param(cmd['key'], cmd['value'])
-            await ws.send_str(json.dumps({'type': 'ack', 'key': cmd['key'], 'success': success}))
+            ok = _write_param(cmd['key'], cmd['value'])
+            await ws.send_str(json.dumps({'type': 'ack', 'key': cmd['key'], 'success': ok}))
         except Exception as exc:
           await ws.send_str(json.dumps({'type': 'error', 'message': str(exc)}))
       elif msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
@@ -163,23 +372,18 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
   finally:
     send_task.cancel()
     request.app['websockets'].discard(ws)
-
   return ws
 
 
 async def api_get_params(request: web.Request) -> web.Response:
   values = _read_all_params()
-  result = {
-    key: {'meta': meta, 'value': values.get(key)}
-    for key, meta in TUNABLE_PARAMS.items()
-  }
+  result = {k: {'meta': v, 'value': values.get(k)} for k, v in PARAMS.items()}
   return web.json_response(result)
 
 
 async def api_post_params(request: web.Request) -> web.Response:
   body = await request.json()
-  key = body.get('key')
-  value = body.get('value')
+  key, value = body.get('key'), body.get('value')
   if not key or value is None:
     raise web.HTTPBadRequest(text='Missing key or value')
   if not _write_param(key, value):
@@ -187,70 +391,106 @@ async def api_post_params(request: web.Request) -> web.Response:
   return web.json_response({'success': True})
 
 
-_DASHBOARD_HTML = """\
+# ── Dashboard HTML ────────────────────────────────────────────────────────────
+
+_HTML = """\
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>openpilot Live Tune Dashboard</title>
 <style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#0d1117;color:#e6edf3;font-family:-apple-system,'Segoe UI',sans-serif;min-height:100vh}
-  header{background:#161b22;border-bottom:1px solid #30363d;padding:12px 20px;display:flex;align-items:center;gap:10px}
-  header h1{font-size:18px;font-weight:600}
-  .dot{width:10px;height:10px;border-radius:50%;background:#3fb950;flex-shrink:0}
-  .dot.off{background:#f85149}
-  .conn{margin-left:auto;font-size:12px;color:#8b949e}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:14px;padding:16px}
-  .card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:16px}
-  .card h2{font-size:11px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:12px}
-  .row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #21262d}
-  .row:last-child{border-bottom:none}
-  .lbl{color:#8b949e;font-size:13px}
-  .val{font-size:14px;font-weight:600;font-variant-numeric:tabular-nums;color:#58a6ff;transition:color .2s}
-  .val.flash{color:#3fb950}
-  .bar-wrap{height:6px;background:#21262d;border-radius:3px;margin-top:6px;overflow:hidden}
-  .bar{height:100%;background:#238636;border-radius:3px;transition:width .3s}
-  .toggle-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0}
-  .toggle-lbl{color:#c9d1d9;font-size:14px}
-  .sw{position:relative;width:44px;height:24px;flex-shrink:0}
-  .sw input{opacity:0;width:0;height:0}
-  .track{position:absolute;cursor:pointer;inset:0;background:#30363d;border-radius:24px;transition:background .2s}
-  .track:before{content:'';position:absolute;width:18px;height:18px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:transform .2s}
-  input:checked+.track{background:#238636}
-  input:checked+.track:before{transform:translateX(20px)}
-  .sel-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0}
-  select{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:5px 8px;font-size:13px;cursor:pointer}
-  .bs-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
-  .bs{text-align:center;padding:10px 6px;border-radius:8px;font-size:13px;font-weight:600;background:#21262d;color:#8b949e;border:1px solid transparent;transition:all .15s}
-  .bs.occupied{background:#ff000022;color:#ff6b6b;border-color:#ff6b6b}
-  .bs.blinker{background:#ffaa0022;color:#ffaa00;border-color:#ffaa00}
-  .bs.danger{background:#ff000055;color:#ff4444;border:2px solid #ff4444;animation:pulse .5s infinite alternate}
-  @keyframes pulse{from{opacity:.7}to{opacity:1}}
-  .ack{font-size:11px;color:#3fb950;margin-left:6px;opacity:0;transition:opacity .3s}
-  .ack.show{opacity:1}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0d1117;color:#e6edf3;font-family:-apple-system,'Segoe UI',sans-serif}
+header{background:#161b22;border-bottom:1px solid #30363d;padding:12px 20px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:10}
+header h1{font-size:16px;font-weight:600}
+.dot{width:9px;height:9px;border-radius:50%;background:#3fb950;flex-shrink:0}
+.dot.off{background:#f85149}
+.conn{margin-left:auto;font-size:11px;color:#8b949e}
+.tabs{display:flex;gap:4px;padding:10px 16px;background:#0d1117;border-bottom:1px solid #21262d;overflow-x:auto;position:sticky;top:45px;z-index:9}
+.tab{padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;background:#21262d;color:#8b949e;border:none;transition:all .15s}
+.tab.active{background:#238636;color:#fff}
+.page{display:none;padding:14px;max-width:1100px}
+.page.active{display:block}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:14px}
+.card h2{font-size:11px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px}
+.row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid #21262d}
+.row:last-child{border-bottom:none}
+.lbl{color:#8b949e;font-size:12px}
+.val{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums;color:#58a6ff;transition:color .2s}
+.val.flash{color:#3fb950}
+.bar-wrap{height:5px;background:#21262d;border-radius:3px;margin-top:5px;overflow:hidden}
+.bar{height:100%;background:#238636;border-radius:3px;transition:width .3s}
+/* Toggle */
+.trow{display:flex;justify-content:space-between;align-items:flex-start;padding:8px 0;border-bottom:1px solid #21262d}
+.trow:last-child{border-bottom:none}
+.tleft{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;padding-right:10px}
+.tlbl{color:#c9d1d9;font-size:13px;display:flex;align-items:center;gap:6px}
+.tdesc{color:#8b949e;font-size:11px}
+.ack{font-size:10px;color:#3fb950;opacity:0;transition:opacity .3s}
+.ack.show{opacity:1}
+.sw{position:relative;width:40px;height:22px;flex-shrink:0;margin-top:2px}
+.sw input{opacity:0;width:0;height:0}
+.track{position:absolute;cursor:pointer;inset:0;background:#30363d;border-radius:22px;transition:background .2s}
+.track:before{content:'';position:absolute;width:16px;height:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:transform .2s}
+input:checked+.track{background:#238636}
+input:checked+.track:before{transform:translateX(18px)}
+/* Select */
+select{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer}
+/* Number input */
+.num-wrap{display:flex;align-items:center;gap:6px}
+.num-inp{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:4px 8px;font-size:12px;width:80px;text-align:right}
+.num-inp:focus{outline:none;border-color:#388bfd}
+.apply-btn{background:#238636;color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;font-weight:600}
+.apply-btn:hover{background:#2ea043}
+/* Text input */
+.str-inp{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:6px 10px;font-size:12px;width:100%;margin-top:6px}
+.str-inp:focus{outline:none;border-color:#388bfd}
+.save-btn{margin-top:8px;background:#1f6feb;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:12px;cursor:pointer;font-weight:600}
+.save-btn:hover{background:#388bfd}
+/* Blind-spot */
+.bs-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+.bs{text-align:center;padding:8px 4px;border-radius:8px;font-size:12px;font-weight:700;background:#21262d;color:#8b949e;border:1px solid transparent;transition:all .15s}
+.bs.occupied{background:#ff000022;color:#ff6b6b;border-color:#ff6b6b}
+.bs.blinker{background:#ffaa0022;color:#ffaa00;border-color:#ffaa00}
+.bs.danger{background:#ff000055;color:#ff4444;border:2px solid #ff4444;animation:bsp .5s infinite alternate}
+@keyframes bsp{from{opacity:.7}to{opacity:1}}
+/* Software BSM badge */
+.sw-bsm-badge{font-size:10px;background:#1f3a5f;color:#58a6ff;border:1px solid #388bfd;border-radius:4px;padding:1px 5px;margin-left:6px}
 </style>
 </head>
 <body>
+
 <header>
   <div class="dot off" id="dot"></div>
   <h1>openpilot &mdash; Live Tune Dashboard</h1>
   <span class="conn" id="connLbl">Connecting&hellip;</span>
 </header>
 
+<div class="tabs">
+  <button class="tab active" onclick="showPage('live')">Live Data</button>
+  <button class="tab" onclick="showPage('core')">Core</button>
+  <button class="tab" onclick="showPage('lateral')">Lateral</button>
+  <button class="tab" onclick="showPage('longitudinal')">Longitudinal</button>
+  <button class="tab" onclick="showPage('safety')">Safety</button>
+  <button class="tab" onclick="showPage('tuning')">Tuning</button>
+  <button class="tab" onclick="showPage('ui')">UI</button>
+  <button class="tab" onclick="showPage('device')">Device</button>
+  <button class="tab" onclick="showPage('mapbox')">Mapbox</button>
+</div>
+
+<!-- ── LIVE DATA ─────────────────────────────────────────────────── -->
+<div class="page active" id="page-live">
 <div class="grid">
 
-  <!-- Live Torque -->
   <div class="card">
     <h2>Live Torque Parameters</h2>
     <div class="row"><span class="lbl">Lat Accel Factor</span><span class="val" id="v-latAccelFactor">&mdash;</span></div>
     <div class="row"><span class="lbl">Lat Accel Offset</span><span class="val" id="v-latAccelOffset">&mdash;</span></div>
     <div class="row"><span class="lbl">Friction</span><span class="val" id="v-friction">&mdash;</span></div>
-    <div class="row">
-      <span class="lbl">Calibration</span>
-      <span class="val" id="v-calPerc">&mdash;</span>
-    </div>
+    <div class="row"><span class="lbl">Calibration</span><span class="val" id="v-calPerc">&mdash;</span></div>
     <div class="bar-wrap"><div class="bar" id="calBar" style="width:0%"></div></div>
     <div class="row" style="margin-top:8px">
       <span class="lbl">Using Live Params</span>
@@ -258,7 +498,6 @@ _DASHBOARD_HTML = """\
     </div>
   </div>
 
-  <!-- Vehicle Params -->
   <div class="card">
     <h2>Learned Vehicle Parameters</h2>
     <div class="row"><span class="lbl">Steer Ratio</span><span class="val" id="v-steerRatio">&mdash;</span></div>
@@ -268,7 +507,6 @@ _DASHBOARD_HTML = """\
     <div class="row"><span class="lbl">Roll</span><span class="val" id="v-roll">&mdash;</span></div>
   </div>
 
-  <!-- Car State & Blind Spots -->
   <div class="card">
     <h2>Car State</h2>
     <div class="row"><span class="lbl">Speed</span><span class="val" id="v-vEgo">&mdash;</span></div>
@@ -278,66 +516,104 @@ _DASHBOARD_HTML = """\
       <div class="bs" id="bsLeft">&larr; Left</div>
       <div class="bs" id="bsRight">Right &rarr;</div>
     </div>
+    <p style="font-size:10px;color:#484f58;margin-top:6px;text-align:center">
+      <span class="sw-bsm-badge">SW BSM</span> = software radar-based detection (legacy vehicles)
+    </p>
   </div>
 
-  <!-- Live Adjustments -->
-  <div class="card">
-    <h2>Live Adjustments</h2>
+</div>
+</div><!-- /page-live -->
 
-    <div class="toggle-row">
-      <span class="toggle-lbl">Experimental Mode<span class="ack" id="ack-ExperimentalMode">&#10003;</span></span>
-      <label class="sw">
-        <input type="checkbox" id="ExperimentalMode"
-               onchange="setParam('ExperimentalMode', this.checked)">
-        <span class="track"></span>
-      </label>
-    </div>
-
-    <div class="toggle-row">
-      <span class="toggle-lbl">Alpha Longitudinal<span class="ack" id="ack-AlphaLongitudinalEnabled">&#10003;</span></span>
-      <label class="sw">
-        <input type="checkbox" id="AlphaLongitudinalEnabled"
-               onchange="setParam('AlphaLongitudinalEnabled', this.checked)">
-        <span class="track"></span>
-      </label>
-    </div>
-
-    <div class="toggle-row">
-      <span class="toggle-lbl">Force Auto Tune<span class="ack" id="ack-ForceAutoTune">&#10003;</span></span>
-      <label class="sw">
-        <input type="checkbox" id="ForceAutoTune"
-               onchange="setParam('ForceAutoTune', this.checked)">
-        <span class="track"></span>
-      </label>
-    </div>
-
-    <div class="toggle-row">
-      <span class="toggle-lbl">Traffic Mode<span class="ack" id="ack-TrafficMode">&#10003;</span></span>
-      <label class="sw">
-        <input type="checkbox" id="TrafficMode"
-               onchange="setParam('TrafficMode', this.checked)">
-        <span class="track"></span>
-      </label>
-    </div>
-
-    <div class="sel-row">
-      <span class="toggle-lbl">Personality<span class="ack" id="ack-LongitudinalPersonality">&#10003;</span></span>
-      <select id="LongitudinalPersonality"
-              onchange="setParam('LongitudinalPersonality', parseInt(this.value))">
-        <option value="0">Aggressive</option>
-        <option value="1">Standard</option>
-        <option value="2">Relaxed</option>
-        <option value="3">Traffic</option>
-      </select>
-    </div>
-  </div>
-
-</div><!-- .grid -->
+<!-- Remaining pages are generated by JS from PARAMS_META -->
+<div class="page" id="page-core"></div>
+<div class="page" id="page-lateral"></div>
+<div class="page" id="page-longitudinal"></div>
+<div class="page" id="page-safety"></div>
+<div class="page" id="page-tuning"></div>
+<div class="page" id="page-ui"></div>
+<div class="page" id="page-device"></div>
+<div class="page" id="page-mapbox"></div>
 
 <script>
+// Injected from server
+const PARAMS_META = __PARAMS_META__;
+
 const WS_URL = `ws://${location.hostname}:${location.port}/ws`;
 let ws = null, retryMs = 1000;
+let paramValues = {};
 
+// ── tab navigation ────────────────────────────────────────────────────────────
+function showPage(id) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  event.currentTarget.classList.add('active');
+}
+
+// ── build param pages ─────────────────────────────────────────────────────────
+function buildPages() {
+  const pages = {core:[],lateral:[],longitudinal:[],safety:[],tuning:[],ui:[],device:[],mapbox:[]};
+  for (const [key, meta] of Object.entries(PARAMS_META)) {
+    const cat = meta.category || 'core';
+    if (pages[cat]) pages[cat].push([key, meta]);
+  }
+  for (const [cat, items] of Object.entries(pages)) {
+    const el = document.getElementById('page-' + cat);
+    if (!el || !items.length) continue;
+    const grid = document.createElement('div');
+    grid.className = 'grid';
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `<h2>${catTitle(cat)}</h2>`;
+    items.forEach(([key, meta]) => {
+      card.appendChild(buildControl(key, meta));
+    });
+    grid.appendChild(card);
+    el.appendChild(grid);
+  }
+}
+
+function catTitle(c) {
+  return {core:'Core Settings',lateral:'Lateral Control',longitudinal:'Longitudinal Control',
+          safety:'Safety & Alerts',tuning:'Advanced Tuning',ui:'UI Customisation',
+          device:'Device Management',mapbox:'Mapbox API Keys'}[c] || c;
+}
+
+function buildControl(key, meta) {
+  const row = document.createElement('div');
+  row.className = 'trow';
+  const left = `<div class="tleft"><div class="tlbl">${meta.label}<span class="ack" id="ack-${key}">\u2713</span></div>${meta.desc ? `<div class="tdesc">${meta.desc}</div>` : ''}</div>`;
+
+  let ctrl = '';
+  if (meta.type === 'bool') {
+    ctrl = `<label class="sw"><input type="checkbox" id="ctrl-${key}" onchange="setParam('${key}',this.checked)"><span class="track"></span></label>`;
+  } else if (meta.type === 'int' && meta.options) {
+    const opts = Object.entries(meta.options).map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
+    ctrl = `<select id="ctrl-${key}" onchange="setParam('${key}',parseInt(this.value))">${opts}</select>`;
+  } else if (meta.type === 'int' || meta.type === 'float') {
+    const step = meta.step || (meta.type === 'float' ? 0.01 : 1);
+    ctrl = `<div class="num-wrap"><input class="num-inp" type="number" id="ctrl-${key}" step="${step}" min="${meta.min ?? ''}" max="${meta.max ?? ''}" onkeydown="if(event.key==='Enter')applyNum('${key}')"><button class="apply-btn" onclick="applyNum('${key}')">Set</button></div>`;
+  } else if (meta.type === 'string') {
+    // String params get their own layout (full-width)
+    row.innerHTML = `<div style="width:100%"><div class="tlbl">${meta.label}</div>${meta.desc ? `<div class="tdesc" style="margin:3px 0 6px">${meta.desc}</div>` : ''}<input class="str-inp" type="${meta.secret ? 'password' : 'text'}" id="ctrl-${key}" placeholder="${meta.placeholder || ''}" autocomplete="off"><button class="save-btn" onclick="applyStr('${key}')">Save</button><span class="ack" id="ack-${key}" style="margin-left:8px;font-size:11px">\u2713 Saved</span></div>`;
+    return row;
+  }
+  row.innerHTML = left + `<div style="flex-shrink:0">${ctrl}</div>`;
+  return row;
+}
+
+function applyNum(key) {
+  const el = document.getElementById('ctrl-' + key);
+  const meta = PARAMS_META[key];
+  const v = meta.type === 'float' ? parseFloat(el.value) : parseInt(el.value);
+  if (!isNaN(v)) setParam(key, v);
+}
+function applyStr(key) {
+  const el = document.getElementById('ctrl-' + key);
+  setParam(key, el.value.trim());
+}
+
+// ── WebSocket ────────────────────────────────────────────────────────────────
 function connect() {
   ws = new WebSocket(WS_URL);
   ws.onopen = () => {
@@ -352,7 +628,7 @@ function connect() {
     setTimeout(connect, retryMs);
     retryMs = Math.min(retryMs * 2, 16000);
   };
-  ws.onmessage = (e) => {
+  ws.onmessage = e => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'live') updateLive(msg.data);
     else if (msg.type === 'ack' && msg.success) flashAck(msg.key);
@@ -361,26 +637,26 @@ function connect() {
 
 function updateLive(d) {
   if (d.torque) {
-    setVal('latAccelFactor', d.torque.latAccelFactor);
-    setVal('latAccelOffset', d.torque.latAccelOffset);
-    setVal('friction', d.torque.friction);
-    setVal('calPerc', d.torque.calPerc + '%');
+    sv('latAccelFactor', d.torque.latAccelFactor);
+    sv('latAccelOffset', d.torque.latAccelOffset);
+    sv('friction', d.torque.friction);
+    sv('calPerc', d.torque.calPerc + '%');
     document.getElementById('calBar').style.width = d.torque.calPerc + '%';
     const up = document.getElementById('v-useParams');
     up.textContent = d.torque.useParams ? '\u2713 Yes' : '\u2717 No';
     up.style.color = d.torque.useParams ? '#3fb950' : '#f85149';
   }
   if (d.vehicleParams) {
-    setVal('steerRatio', d.vehicleParams.steerRatio);
-    setVal('stiffnessFactor', d.vehicleParams.stiffnessFactor);
-    setVal('angleOffsetDeg', d.vehicleParams.angleOffsetDeg + '\u00b0');
-    setVal('gyroBias', d.vehicleParams.gyroBias);
-    setVal('roll', d.vehicleParams.roll);
+    sv('steerRatio', d.vehicleParams.steerRatio);
+    sv('stiffnessFactor', d.vehicleParams.stiffnessFactor);
+    sv('angleOffsetDeg', d.vehicleParams.angleOffsetDeg + '\u00b0');
+    sv('gyroBias', d.vehicleParams.gyroBias);
+    sv('roll', d.vehicleParams.roll);
   }
   if (d.carState) {
-    setVal('vEgo', d.carState.vEgo + ' km/h');
-    setVal('steeringAngle', d.carState.steeringAngleDeg + '\u00b0');
-    updateBS(d.carState.leftBlinker,  d.carState.leftBlindspot,
+    sv('vEgo', d.carState.vEgo + ' km/h');
+    sv('steeringAngle', d.carState.steeringAngleDeg + '\u00b0');
+    updateBS(d.carState.leftBlinker, d.carState.leftBlindspot,
              d.carState.rightBlinker, d.carState.rightBlindspot);
   }
   if (d.controls) {
@@ -390,7 +666,7 @@ function updateLive(d) {
   }
 }
 
-function setVal(id, v) {
+function sv(id, v) {
   const el = document.getElementById('v-' + id);
   if (!el) return;
   el.textContent = v;
@@ -401,6 +677,7 @@ function setVal(id, v) {
 function updateBS(blL, bsL, blR, bsR) {
   const L = document.getElementById('bsLeft');
   const R = document.getElementById('bsRight');
+  // bsL/bsR may be software-derived (merged in backend), shown with SW badge if hardware BSM absent
   L.className = 'bs' + (bsL && blL ? ' danger' : bsL ? ' occupied' : blL ? ' blinker' : '');
   R.className = 'bs' + (bsR && blR ? ' danger' : bsR ? ' occupied' : blR ? ' blinker' : '');
   L.innerHTML = bsL ? '\u26a0 LEFT BLOCKED' : '\u2190 Left';
@@ -411,12 +688,12 @@ function flashAck(key) {
   const el = document.getElementById('ack-' + key);
   if (!el) return;
   el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), 1500);
+  setTimeout(() => el.classList.remove('show'), 1800);
 }
 
 function setParam(key, value) {
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ action: 'set_param', key, value }));
+    ws.send(JSON.stringify({action: 'set_param', key, value}));
   }
 }
 
@@ -425,14 +702,17 @@ async function loadParams() {
     const data = await (await fetch('/api/params')).json();
     for (const [key, info] of Object.entries(data)) {
       if (info.value === null || info.value === undefined) continue;
-      const el = document.getElementById(key);
+      const el = document.getElementById('ctrl-' + key);
       if (!el) continue;
       if (el.type === 'checkbox') el.checked = !!info.value;
       else if (el.tagName === 'SELECT') el.value = String(info.value);
+      else el.value = info.value;   // number or text input
     }
   } catch (e) { console.error('loadParams:', e); }
 }
 
+// ── init ──────────────────────────────────────────────────────────────────────
+buildPages();
 connect();
 </script>
 </body>
@@ -441,7 +721,11 @@ connect();
 
 
 async def dashboard_handler(request: web.Request) -> web.Response:
-  return web.Response(text=_DASHBOARD_HTML, content_type='text/html')
+  # Inject PARAMS metadata as JSON so the JS can build controls dynamically
+  params_json = json.dumps({k: {ek: ev for ek, ev in v.items() if ek != 'secret'}
+                            for k, v in PARAMS.items()})
+  html = _HTML.replace('__PARAMS_META__', params_json)
+  return web.Response(text=html, content_type='text/html')
 
 
 async def _on_shutdown(app: web.Application) -> None:
@@ -457,13 +741,12 @@ def main() -> None:
   app['websockets']: set[web.WebSocketResponse] = set()
   app.on_shutdown.append(_on_shutdown)
 
-  app.router.add_get('/',           dashboard_handler)
-  app.router.add_get('/ws',         websocket_handler)
-  app.router.add_get('/api/params', api_get_params)
+  app.router.add_get('/',            dashboard_handler)
+  app.router.add_get('/ws',          websocket_handler)
+  app.router.add_get('/api/params',  api_get_params)
   app.router.add_post('/api/params', api_post_params)
 
   log.info('Live Tune Dashboard → http://0.0.0.0:%d', PORT)
-  log.info('Open http://<device-ip>:%d in your browser', PORT)
   web.run_app(app, host='0.0.0.0', port=PORT, print=None)
 
 
