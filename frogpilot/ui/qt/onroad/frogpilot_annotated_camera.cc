@@ -1,5 +1,8 @@
 #include "frogpilot/ui/qt/onroad/frogpilot_annotated_camera.h"
 
+#include <QDateTime>
+#include <cmath>
+
 FrogPilotAnnotatedCameraWidget::FrogPilotAnnotatedCameraWidget(QWidget *parent) : QWidget(parent) {
   animationTimer = new QTimer(this);
 
@@ -331,17 +334,27 @@ void FrogPilotAnnotatedCameraWidget::paintFrogPilotWidgets(QPainter &p, UIState 
 }
 
 void FrogPilotAnnotatedCameraWidget::paintAdjacentPaths(QPainter &p) {
-  std::function<void(const QPolygonF&, bool, bool, float)> paintPath = [&](const QPolygonF &path, bool isLeft, bool isBlindSpot, float laneWidth) {
+  // Time-based pulse for critical blind spot + blinker state (~1 Hz)
+  qint64 msNow = QDateTime::currentMSecsSinceEpoch();
+  float pulse = 0.5f + 0.5f * std::sin(msNow * 0.00628f);
+
+  std::function<void(const QPolygonF&, bool, bool, bool, float)> paintPath =
+      [&](const QPolygonF &path, bool isLeft, bool isBlindSpot, bool blinkerActive, float laneWidth) {
     if (laneWidth == 0.0f) {
       return;
     }
 
     p.save();
 
+    bool blindSpotPath = frogpilot_toggles.value("blind_spot_path").toBool();
+    bool isCritical = isBlindSpot && blindSpotPath && blinkerActive;
+
     QLinearGradient gradient(0, height(), 0, 0);
-    if (isBlindSpot && frogpilot_toggles.value("blind_spot_path").toBool()) {
-      gradient.setColorAt(0.0f, QColor::fromHslF(0.0f, 0.75f, 0.5f, 0.4f));
-      gradient.setColorAt(0.5f, QColor::fromHslF(0.0f, 0.75f, 0.5f, 0.35f));
+    if (isBlindSpot && blindSpotPath) {
+      float alpha0 = isCritical ? (0.35f + 0.30f * pulse) : 0.40f;
+      float alpha1 = isCritical ? (0.20f + 0.20f * pulse) : 0.30f;
+      gradient.setColorAt(0.0f, QColor::fromHslF(0.0f, 0.75f, 0.5f, alpha0));
+      gradient.setColorAt(0.5f, QColor::fromHslF(0.0f, 0.75f, 0.5f, alpha1));
       gradient.setColorAt(1.0f, QColor::fromHslF(0.0f, 0.75f, 0.5f, 0.0f));
     } else {
       float ratio = std::clamp(laneWidth / frogpilot_toggles.value("lane_detection_width").toDouble(), 0.0, 1.0);
@@ -352,13 +365,23 @@ void FrogPilotAnnotatedCameraWidget::paintAdjacentPaths(QPainter &p) {
       gradient.setColorAt(1.0f, QColor::fromHslF(hue, 0.75f, 0.5f, 0.0f));
     }
 
+    p.setPen(Qt::NoPen);
     p.setBrush(gradient);
     p.drawPolygon(path);
 
+    // Pulsing border when blinker active + blind spot occupied
+    if (isCritical) {
+      int borderAlpha = static_cast<int>(120 + 135.0f * pulse);
+      p.setPen(QPen(QColor(255, 60, 60, borderAlpha), 4, Qt::SolidLine,
+                    Qt::RoundCap, Qt::RoundJoin));
+      p.setBrush(Qt::NoBrush);
+      p.drawPolygon(path);
+    }
+
     if (frogpilot_toggles.value("adjacent_path_metrics").toBool()) {
       QString text;
-      if (isBlindSpot && frogpilot_toggles.value("blind_spot_path").toBool()) {
-        text = tr("Vehicle in blind spot");
+      if (isBlindSpot && blindSpotPath) {
+        text = isCritical ? tr("⚠ OCCUPIED ⚠") : tr("Vehicle in blind spot");
       } else {
         text = QString::number(laneWidth * distanceConversion, 'f', 2) + leadDistanceUnit;
       }
@@ -366,7 +389,7 @@ void FrogPilotAnnotatedCameraWidget::paintAdjacentPaths(QPainter &p) {
       int midIndex = path.size() / 2;
       QPointF anchorPoint = isLeft ? path[midIndex / 2] : path[midIndex + (path.size() - midIndex) / 2];
 
-      p.setFont(InterFont(45, QFont::DemiBold));
+      p.setFont(InterFont(isCritical ? 50 : 45, isCritical ? QFont::Bold : QFont::DemiBold));
       QFontMetrics metrics(p.font());
 
       int textXPosition = isLeft ? anchorPoint.x() - metrics.horizontalAdvance(text) : anchorPoint.x();
@@ -374,36 +397,78 @@ void FrogPilotAnnotatedCameraWidget::paintAdjacentPaths(QPainter &p) {
 
       QPainterPath textPath;
       textPath.addText(textXPosition, textYPosition, p.font(), text);
-      p.strokePath(textPath, QPen(Qt::black, 3, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+      p.strokePath(textPath, QPen(Qt::black, 4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
 
-      p.setPen(whiteColor());
-      p.drawText(textXPosition, textYPosition, text);
+      if (isCritical) {
+        int textAlpha = static_cast<int>(200 + 55.0f * pulse);
+        p.fillPath(textPath, QBrush(QColor(255, 80, 80, textAlpha)));
+      } else {
+        p.setPen(whiteColor());
+        p.drawText(textXPosition, textYPosition, text);
+      }
     }
 
     p.restore();
   };
 
-  paintPath(track_adjacent_vertices[0], true, blindspotLeft, laneWidthLeft);
-  paintPath(track_adjacent_vertices[1], false, blindspotRight, laneWidthRight);
+  paintPath(track_adjacent_vertices[0], true,  blindspotLeft,  blinkerLeft,  laneWidthLeft);
+  paintPath(track_adjacent_vertices[1], false, blindspotRight, blinkerRight, laneWidthRight);
 }
 
 void FrogPilotAnnotatedCameraWidget::paintBlindSpotPath(QPainter &p) {
-  p.save();
+  // Time-based pulse independent of signal animation state (~1 Hz sine wave)
+  qint64 msNow = QDateTime::currentMSecsSinceEpoch();
+  float pulse = 0.5f + 0.5f * std::sin(msNow * 0.00628f);
 
-  QLinearGradient bs(0, height(), 0, 0);
-  bs.setColorAt(0.0f, QColor::fromHslF(0 / 360.0f, 0.75f, 0.5f, 0.4f));
-  bs.setColorAt(0.5f, QColor::fromHslF(0 / 360.0f, 0.75f, 0.5f, 0.35f));
-  bs.setColorAt(1.0f, QColor::fromHslF(0 / 360.0f, 0.75f, 0.5f, 0.0f));
-  p.setBrush(bs);
+  auto drawPath = [&](const QPolygonF &path, bool occupied, bool blinkerActive) {
+    if (!occupied || path.boundingRect().width() <= 0) {
+      return;
+    }
 
-  if (track_adjacent_vertices[0].boundingRect().width() > 0 && blindspotLeft) {
-    p.drawPolygon(track_adjacent_vertices[0]);
-  }
-  if (track_adjacent_vertices[1].boundingRect().width() > 0 && blindspotRight) {
-    p.drawPolygon(track_adjacent_vertices[1]);
-  }
+    p.save();
 
-  p.restore();
+    // When the blinker is flashing toward the occupied blind spot, ramp up urgency
+    float alpha0 = blinkerActive ? (0.35f + 0.30f * pulse) : 0.40f;
+    float alpha1 = blinkerActive ? (0.20f + 0.20f * pulse) : 0.30f;
+
+    QLinearGradient fill(0, height(), 0, 0);
+    fill.setColorAt(0.0f, QColor::fromHslF(0.0f, 0.80f, 0.50f, alpha0));
+    fill.setColorAt(0.5f, QColor::fromHslF(0.0f, 0.80f, 0.50f, alpha1));
+    fill.setColorAt(1.0f, QColor::fromHslF(0.0f, 0.80f, 0.50f, 0.0f));
+
+    p.setPen(Qt::NoPen);
+    p.setBrush(fill);
+    p.drawPolygon(path);
+
+    if (blinkerActive) {
+      // Pulsing red border to make the danger zone unmissable
+      int borderAlpha = static_cast<int>(120 + 135.0f * pulse);
+      p.setPen(QPen(QColor(255, 60, 60, borderAlpha), 5, Qt::SolidLine,
+                    Qt::RoundCap, Qt::RoundJoin));
+      p.setBrush(Qt::NoBrush);
+      p.drawPolygon(path);
+
+      // "OCCUPIED" warning label centered inside the polygon
+      QPointF center = path.boundingRect().center();
+      p.setFont(InterFont(48, QFont::Bold));
+      QFontMetrics fm(p.font());
+      QString warn = tr("OCCUPIED");
+      float textX = center.x() - fm.horizontalAdvance(warn) / 2.0f;
+      float textY = center.y() + fm.height() / 4.0f;
+
+      QPainterPath textOutline;
+      textOutline.addText(textX, textY, p.font(), warn);
+      p.strokePath(textOutline, QPen(Qt::black, 5, Qt::SolidLine,
+                                     Qt::RoundCap, Qt::RoundJoin));
+      int textAlpha = static_cast<int>(200 + 55.0f * pulse);
+      p.fillPath(textOutline, QBrush(QColor(255, 80, 80, textAlpha)));
+    }
+
+    p.restore();
+  };
+
+  drawPath(track_adjacent_vertices[0], blindspotLeft,  blinkerLeft);
+  drawPath(track_adjacent_vertices[1], blindspotRight, blinkerRight);
 }
 
 void FrogPilotAnnotatedCameraWidget::paintCEMStatus(QPainter &p) {
