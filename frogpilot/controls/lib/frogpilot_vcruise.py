@@ -88,9 +88,21 @@ class FrogPilotVCruise:
 
       self.tracked_model_length = self.frogpilot_planner.model_length
 
-      targets = [self.csc_target, v_cruise]
-      if frogpilot_toggles.speed_limit_controller:
-        targets.append(max(self.slc.overridden_speed, self.slc_target + self.slc_offset) - v_ego_diff)
-      v_cruise = min([target if target >= CRUISING_SPEED else v_cruise for target in targets])
+      slc_active = frogpilot_toggles.speed_limit_controller and self.slc_target >= CRUISING_SPEED
+      if slc_active:
+        slc_combined = max(self.slc.overridden_speed, self.slc_target + self.slc_offset) - v_ego_diff
+        # SLC has a valid speed limit: use it as the cruise target so the car
+        # both slows down AND speeds up to match the posted road speed limit.
+        # The curve speed controller still caps speed through corners.
+        if self.csc_controlling_speed:
+          v_cruise = max(min(self.csc_target, slc_combined), CRUISING_SPEED)
+        else:
+          v_cruise = max(slc_combined, CRUISING_SPEED)
+      else:
+        # No valid speed limit (or SLC disabled): original min-cap behaviour
+        targets = [self.csc_target, v_cruise]
+        if frogpilot_toggles.speed_limit_controller:
+          targets.append(max(self.slc.overridden_speed, self.slc_target + self.slc_offset) - v_ego_diff)
+        v_cruise = min([target if target >= CRUISING_SPEED else v_cruise for target in targets])
 
     return v_cruise
