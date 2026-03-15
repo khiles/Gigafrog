@@ -74,6 +74,20 @@ class CarController(CarControllerBase):
         cntr = (CS.das_control["DAS_controlCounter"] + 1) % 8
         can_sends.append(self.tesla_can.create_longitudinal_command(13, 0, cntr, CS.out.vEgo, False))
 
+    # Keep the turn indicator on for the full duration of an openpilot-commanded
+    # lane change. CC.leftBlinker/rightBlinker are driven by the model's lane
+    # change state (not the physical stalk), so they stay True past the 3-flash
+    # auto-cancel that normally kills the blinker mid-maneuver.
+    if self.frame % 10 == 0:
+      cntr = (self.frame // 10) % 16
+      if CC.leftBlinker:
+        turn_indicator, turn_reason = 1, 6   # LEFT, DAS_ACTIVE_COMMANDED_LANE_CHANGE
+      elif CC.rightBlinker:
+        turn_indicator, turn_reason = 2, 6   # RIGHT, DAS_ACTIVE_COMMANDED_LANE_CHANGE
+      else:
+        turn_indicator, turn_reason = 0, 0   # NONE
+      can_sends.append(self.tesla_can.create_body_controls(cntr, turn_indicator, turn_reason))
+
     # TODO: HUD control
     new_actuators = actuators.as_builder()
     new_actuators.steeringAngleDeg = self.apply_angle_last

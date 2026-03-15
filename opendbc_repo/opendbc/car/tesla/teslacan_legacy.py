@@ -50,6 +50,20 @@ class TeslaCANRaven:
     values["DAS_controlChecksum"] = self.checksum(0x2b9, data[:7])
     return self.packers[CANBUS.powertrain].make_can_msg("DAS_control", CANBUS.powertrain, values)
 
+  def create_body_controls(self, counter, turn_indicator, turn_reason):
+    values = {
+      "DAS_headlightRequest": 3,         # INVALID = no DAS headlight request
+      "DAS_hazardLightRequest": 3,       # SNA = no DAS hazard request
+      "DAS_wiperSpeed": 15,              # INVALID = no DAS wiper request
+      "DAS_turnIndicatorRequest": turn_indicator,
+      "DAS_turnIndicatorRequestReason": turn_reason,
+      "DAS_highLowBeamDecision": 3,      # SNA = no DAS beam request
+      "DAS_bodyControlsCounter": counter,
+    }
+    data = self.packers[CANBUS.party].make_can_msg("DAS_bodyControls", CANBUS.party, values)[1]
+    values["DAS_bodyControlsChecksum"] = self.checksum(0x3E9, data[:7])
+    return self.packers[CANBUS.party].make_can_msg("DAS_bodyControls", CANBUS.party, values)
+
   def create_steering_allowed(self, counter):
     values = {
       "APS_eacMonitorCounter": counter,
