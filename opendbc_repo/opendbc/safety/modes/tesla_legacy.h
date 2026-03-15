@@ -222,6 +222,7 @@ static safety_config tesla_legacy_init(uint16_t param) {
   static const CanMsg TESLA_TX_LEGACY_MSGS[] = {
     {0x488, 0, 4, .check_relay = true, .disable_static_blocking = true},  // DAS_steeringControl
     {0x27D, 0, 3, .check_relay = true, .disable_static_blocking = true},  // APS_eacMonitor
+    {0x3E9, 0, 8, .check_relay = true, .disable_static_blocking = true},  // DAS_bodyControls (turn indicator)
   };
 
   static const CanMsg TESLA_LEGACY_PT_MSGS[] = {
@@ -231,6 +232,7 @@ static safety_config tesla_legacy_init(uint16_t param) {
   static const CanMsg TESLA_TX_LEGACY_HW1_MSGS[] = {
     {0x488, 0, 4, .check_relay = true, .disable_static_blocking = true},  // DAS_steeringControl
     {0x2b9, 0, 8, .check_relay = true, .disable_static_blocking = true},  // DAS_control
+    {0x3E9, 0, 8, .check_relay = true, .disable_static_blocking = true},  // DAS_bodyControls (turn indicator)
   };
 
   // Define RX check arrays (keeping them as is)

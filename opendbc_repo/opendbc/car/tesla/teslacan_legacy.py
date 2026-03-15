@@ -51,10 +51,7 @@ class TeslaCANRaven:
     return self.packers[CANBUS.powertrain].make_can_msg("DAS_control", CANBUS.powertrain, values)
 
   def create_body_controls(self, counter, turn_indicator, turn_reason):
-    # HW3: body controller is on chassis bus (5); HW1/HW2/HW2.5: party bus (0).
-    # The chassis packer is only added to self.packers for HW3 in carcontroller.py.
-    bus = CANBUS.chassis if CANBUS.chassis in self.packers else CANBUS.party
-    packer = self.packers[bus]
+    # Send on party bus (0); panda relay forwards to chassis bus automatically.
     values = {
       "DAS_headlightRequest": 3,         # INVALID = no DAS headlight request
       "DAS_hazardLightRequest": 3,       # SNA = no DAS hazard request
@@ -64,9 +61,9 @@ class TeslaCANRaven:
       "DAS_highLowBeamDecision": 3,      # SNA = no DAS beam request
       "DAS_bodyControlsCounter": counter,
     }
-    data = packer.make_can_msg("DAS_bodyControls", bus, values)[1]
+    data = self.packers[CANBUS.party].make_can_msg("DAS_bodyControls", CANBUS.party, values)[1]
     values["DAS_bodyControlsChecksum"] = self.checksum(0x3E9, data[:7])
-    return packer.make_can_msg("DAS_bodyControls", bus, values)
+    return self.packers[CANBUS.party].make_can_msg("DAS_bodyControls", CANBUS.party, values)
 
   def create_steering_allowed(self, counter):
     values = {

@@ -32,10 +32,6 @@ class CarController(CarControllerBase):
         CANBUS.autopilot_powertrain = CANBUS.autopilot_party
 
       self.packers = {CANBUS.party: CANPacker(dbc_names[Bus.party]), CANBUS.powertrain: CANPacker(dbc_names[Bus.pt])}
-      # HW3 Model S: body controller lives on chassis bus (bus 5), not party bus (bus 0).
-      # DAS_bodyControls must be packed with tesla_can.dbc and sent on that bus.
-      if CP.carFingerprint == CAR.TESLA_MODEL_S_HW3:
-        self.packers[CANBUS.chassis] = CANPacker(dbc_names[Bus.chassis])
       self.tesla_can = TeslaCANRaven(self.packers)
       from opendbc.car.tesla.interface import CarInterface
       self.VM = VehicleModel(CarInterface.get_non_essential_params("TESLA_MODEL_S_HW3"))

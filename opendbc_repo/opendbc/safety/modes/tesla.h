@@ -323,12 +323,14 @@ static safety_config tesla_init(uint16_t param) {
     {0x488, 0, 4, .check_relay = true, .disable_static_blocking = true},   // DAS_steeringControl
     {0x2b9, 0, 8, .check_relay = false},                                   // DAS_control (for cancel)
     {0x27D, 0, 3, .check_relay = true, .disable_static_blocking = true},   // APS_eacMonitor
+    {0x3E9, 0, 8, .check_relay = true, .disable_static_blocking = true},   // DAS_bodyControls (turn indicator)
   };
 
   static const CanMsg TESLA_M3_Y_LONG_TX_MSGS[] = {
     {0x488, 0, 4, .check_relay = true, .disable_static_blocking = true},  // DAS_steeringControl
     {0x2b9, 0, 8, .check_relay = true, .disable_static_blocking = true},  // DAS_control
     {0x27D, 0, 3, .check_relay = true, .disable_static_blocking = true},  // APS_eacMonitor
+    {0x3E9, 0, 8, .check_relay = true, .disable_static_blocking = true},  // DAS_bodyControls (turn indicator)
   };
 
   SAFETY_UNUSED(param);
