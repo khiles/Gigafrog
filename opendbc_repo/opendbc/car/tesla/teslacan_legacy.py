@@ -25,11 +25,15 @@ class TeslaCANRaven:
     values["DAS_steeringControlChecksum"] = self.checksum(0x488, data[:3])
     return self.packers[CANBUS.party].make_can_msg("DAS_steeringControl", CANBUS.party, values)
 
-  def create_longitudinal_command(self, acc_state, accel, counter, v_ego, active):
+  def create_longitudinal_command(self, acc_state, accel, counter, v_ego, active, v_target=None):
     set_speed = max(v_ego * CV.MS_TO_KPH, 0)
     if active:
-      # TODO: this causes jerking after gas override when above set speed
-      set_speed = 0 if accel < 0 else V_CRUISE_MAX
+      if accel < 0:
+        set_speed = 0
+      elif v_target is not None and v_target > 0:
+        set_speed = max(v_target * CV.MS_TO_KPH, v_ego * CV.MS_TO_KPH)
+      else:
+        set_speed = V_CRUISE_MAX
 
     values = {
       "DAS_setSpeed": set_speed,
