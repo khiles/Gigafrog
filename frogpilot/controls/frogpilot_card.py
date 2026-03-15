@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from opendbc.car import DT_CTRL
 from opendbc.safety import ALTERNATIVE_EXPERIENCE
 from openpilot.common.params import Params
 from openpilot.selfdrive.car.cruise import CRUISE_LONG_PRESS, ButtonType
@@ -18,6 +19,7 @@ class FrogPilotCard:
     self.accel_pressed = False
     self.always_on_lateral_allowed = False
     self.decel_pressed = False
+    self.steering_hold_frames = 0
     self.distancePressed_previously = False
     self.force_coast = False
     self.pause_lateral = False
@@ -69,13 +71,21 @@ class FrogPilotCard:
     elif frogpilot_toggles.always_on_lateral_main:
       self.always_on_lateral_allowed = carState.cruiseState.available
 
+    # Decay the post-steering hold timer each frame; reset it whenever the user is steering
+    if carState.steeringPressed:
+      self.steering_hold_frames = int(1.5 / DT_CTRL)
+    else:
+      self.steering_hold_frames = max(0, self.steering_hold_frames - 1)
+
     self.always_on_lateral_enabled = self.always_on_lateral_allowed and self.always_on_lateral_set
     self.always_on_lateral_enabled &= carState.gearShifter not in NON_DRIVING_GEARS
     self.always_on_lateral_enabled &= sm["frogpilotPlan"].lateralCheck
     self.always_on_lateral_enabled &= sm["liveCalibration"].calPerc >= 1
     self.always_on_lateral_enabled &= (ET.IMMEDIATE_DISABLE not in sm["selfdriveState"].alertType + sm["frogpilotSelfdriveState"].alertType) or self.frogs_go_moo
     self.always_on_lateral_enabled &= not (carState.brakePressed and carState.vEgo < frogpilot_toggles.always_on_lateral_pause_speed) or carState.standstill
+    self.always_on_lateral_enabled &= not (carState.brakePressed and carState.standstill)
     self.always_on_lateral_enabled &= not self.error_log.is_file() or self.frogs_go_moo
+    self.always_on_lateral_enabled &= self.steering_hold_frames == 0
 
     if sm.updated["frogpilotPlan"] or any(be.type in (ButtonType.accelCruise, ButtonType.resumeCruise) for be in carState.buttonEvents):
       self.accel_pressed = any(be.type in (ButtonType.accelCruise, ButtonType.resumeCruise) for be in carState.buttonEvents)
