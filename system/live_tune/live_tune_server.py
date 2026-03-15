@@ -103,13 +103,21 @@ PARAMS: dict[str, dict] = {
     'type': 'bool', 'label': 'Human-Like Acceleration',
     'category': 'longitudinal', 'desc': 'Smoother, more natural acceleration profiles',
   },
-  'SmoothBraking': {
-    'type': 'bool', 'label': 'Smooth Braking',
-    'category': 'longitudinal', 'desc': 'Smoother deceleration behind slower traffic',
+  'HumanFollowing': {
+    'type': 'bool', 'label': 'Human-Like Following',
+    'category': 'longitudinal', 'desc': 'Smoother following distance adjustments',
   },
-  'AggressiveAcceleration': {
-    'type': 'bool', 'label': 'Aggressive Acceleration',
-    'category': 'longitudinal', 'desc': 'More rapid acceleration from stops',
+  'AccelerationProfile': {
+    'type': 'int', 'label': 'Acceleration Profile', 'category': 'longitudinal',
+    'min': 0, 'max': 3,
+    'options': {0: 'Normal', 1: 'Eco', 2: 'Sport', 3: 'Sport+'},
+    'desc': 'Throttle aggressiveness profile',
+  },
+  'DecelerationProfile': {
+    'type': 'int', 'label': 'Deceleration Profile', 'category': 'longitudinal',
+    'min': 0, 'max': 2,
+    'options': {0: 'Normal', 1: 'Eco', 2: 'Sport'},
+    'desc': 'Braking aggressiveness profile',
   },
   'SpeedLimitController': {
     'type': 'bool', 'label': 'Speed Limit Controller',
@@ -159,9 +167,9 @@ PARAMS: dict[str, dict] = {
     'type': 'float', 'label': 'Steer KP Override', 'category': 'tuning',
     'min': 0.1, 'max': 2.0, 'step': 0.05, 'desc': 'Override lateral proportional gain',
   },
-  'TrafficMode': {
-    'type': 'bool', 'label': 'Traffic Mode',
-    'category': 'tuning', 'desc': 'Tighter following optimised for stop-and-go traffic',
+  'ForceAutoTuneOff': {
+    'type': 'bool', 'label': 'Disable Auto Tune',
+    'category': 'tuning', 'desc': 'Permanently disable live torque learning (use static car values)',
   },
 
   # ── UI Customisation ─────────────────────────────────────────────────────
@@ -177,9 +185,13 @@ PARAMS: dict[str, dict] = {
     'type': 'bool', 'label': 'Model Visualisation',
     'category': 'ui', 'desc': 'Enhanced path, lane-line, and lead visualisation',
   },
-  'AdjacentLeadTracking': {
-    'type': 'bool', 'label': 'Adjacent Lane Tracking',
-    'category': 'ui', 'desc': 'Display adjacent lane vehicle positions on HUD',
+  'AdjacentPath': {
+    'type': 'bool', 'label': 'Adjacent Path Overlay',
+    'category': 'ui', 'desc': 'Show adjacent lane path overlays on the HUD',
+  },
+  'AdjacentPathMetrics': {
+    'type': 'bool', 'label': 'Adjacent Path Metrics',
+    'category': 'ui', 'desc': 'Show lane-width numbers on adjacent path overlays',
   },
   'PathWidth': {
     'type': 'float', 'label': 'Path Width (m)', 'category': 'ui',
@@ -433,8 +445,8 @@ header h1{font-size:16px;font-weight:600}
 .ack.show{opacity:1}
 .sw{position:relative;width:40px;height:22px;flex-shrink:0;margin-top:2px}
 .sw input{opacity:0;width:0;height:0}
-.track{position:absolute;cursor:pointer;inset:0;background:#30363d;border-radius:22px;transition:background .2s}
-.track:before{content:'';position:absolute;width:16px;height:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:transform .2s}
+.track{position:absolute;cursor:pointer;top:0;right:0;bottom:0;left:0;background:#555d68;border-radius:22px;transition:background .2s}
+.track:before{content:'';position:absolute;width:16px;height:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.4)}
 input:checked+.track{background:#238636}
 input:checked+.track:before{transform:translateX(18px)}
 /* Select */
@@ -459,6 +471,9 @@ select{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6
 @keyframes bsp{from{opacity:.7}to{opacity:1}}
 /* Software BSM badge */
 .sw-bsm-badge{font-size:10px;background:#1f3a5f;color:#58a6ff;border:1px solid #388bfd;border-radius:4px;padding:1px 5px;margin-left:6px}
+/* Toast notifications */
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#b91c1c;color:#fef2f2;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:500;z-index:100;opacity:0;transition:opacity .3s;pointer-events:none;max-width:90vw;text-align:center}
+.toast.show{opacity:1}
 </style>
 </head>
 <body>
@@ -469,6 +484,7 @@ select{background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6
   <span class="conn" id="connLbl">Connecting&hellip;</span>
 </header>
 
+<div class="toast" id="toast"></div>
 <div class="tabs">
   <button class="tab active" onclick="showPage('live')">Live Data</button>
   <button class="tab" onclick="showPage('core')">Core</button>
@@ -631,7 +647,10 @@ function connect() {
   ws.onmessage = e => {
     const msg = JSON.parse(e.data);
     if (msg.type === 'live') updateLive(msg.data);
-    else if (msg.type === 'ack' && msg.success) flashAck(msg.key);
+    else if (msg.type === 'ack') {
+      if (msg.success) flashAck(msg.key);
+      else showToast(`\u26a0 Failed to write "${msg.key}" — key may not exist on this build`);
+    }
   };
 }
 
@@ -682,6 +701,15 @@ function updateBS(blL, bsL, blR, bsR) {
   R.className = 'bs' + (bsR && blR ? ' danger' : bsR ? ' occupied' : blR ? ' blinker' : '');
   L.innerHTML = bsL ? '\u26a0 LEFT BLOCKED' : '\u2190 Left';
   R.innerHTML = bsR ? 'RIGHT BLOCKED \u26a0' : 'Right \u2192';
+}
+
+let _toastTimer = null;
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), 4000);
 }
 
 function flashAck(key) {
