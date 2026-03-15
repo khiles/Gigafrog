@@ -416,6 +416,7 @@ class FrogPilotVariables:
     toggle.warningImmediate_volume = max(self.get_value("WarningImmediateVolume", cast=float, condition=toggle.alert_volume_controller, default=25), 25)
 
     toggle.always_on_lateral = self.get_value("AlwaysOnLateral")
+    toggle.always_on_lateral_hold_time = self.get_value("AlwaysOnLateralHoldTime", cast=float, condition=toggle.always_on_lateral, default=1.5)
     toggle.always_on_lateral_lkas = toggle.always_on_lateral and toggle.lkas_allowed_for_aol and self.get_value("AlwaysOnLateralLKAS")
     toggle.always_on_lateral_main = toggle.always_on_lateral and not prohibited_main_aol and not toggle.always_on_lateral_lkas
     toggle.always_on_lateral_pause_speed = self.get_value("PauseAOLOnBrake", cast=float, condition=toggle.always_on_lateral)

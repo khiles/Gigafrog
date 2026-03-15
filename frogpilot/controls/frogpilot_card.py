@@ -73,7 +73,7 @@ class FrogPilotCard:
 
     # Decay the post-steering hold timer each frame; reset it whenever the user is steering
     if carState.steeringPressed:
-      self.steering_hold_frames = int(1.5 / DT_CTRL)
+      self.steering_hold_frames = int(frogpilot_toggles.always_on_lateral_hold_time / DT_CTRL)
     else:
       self.steering_hold_frames = max(0, self.steering_hold_frames - 1)
 

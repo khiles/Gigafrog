@@ -42,6 +42,7 @@ FrogPilotLateralPanel::FrogPilotLateralPanel(FrogPilotSettingsWindow *parent, bo
     {"ForceTorqueController", tr("Force Torque Controller"), tr("<b>Use torque-based steering control instead of angle-based control for smoother lane keeping, especially in curves.</b>"), ""},
 
     {"AlwaysOnLateral", tr("Always On Lateral"), tr("<b>openpilot's steering remains active even when the accelerator or brake pedals are pressed.</b>"), "../../frogpilot/assets/toggle_icons/icon_always_on_lateral.png"},
+    {"AlwaysOnLateralHoldTime", tr("Post-Steering Hold Time"), tr("<b>How long \"Always On Lateral\" waits before re-engaging after the driver releases the steering wheel.</b>"), ""},
     {"AlwaysOnLateralLKAS", tr("Enable With LKAS"), tr("<b>Enable \"Always On Lateral\" whenever \"LKAS\" is on, even when openpilot is not engaged.</b>"), ""},
     {"PauseAOLOnBrake", tr("Pause on Brake Press Below"), tr("<b>Pause \"Always On Lateral\" below the set speed while the brake pedal is pressed.</b>"), ""},
 
@@ -92,6 +93,14 @@ FrogPilotLateralPanel::FrogPilotLateralPanel(FrogPilotSettingsWindow *parent, bo
         lateralLayout->setCurrentWidget(aolPanel);
       });
       lateralToggle = aolToggle;
+    } else if (param == "AlwaysOnLateralHoldTime") {
+      std::map<float, QString> holdTimeLabels;
+      for (int i = 5; i <= 30; ++i) {
+        float val = i / 10.0f;
+        holdTimeLabels[val] = i == 10 ? QString::number(val, 'f', 1) + tr(" second") : QString::number(val, 'f', 1) + tr(" seconds");
+      }
+      lateralToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0.5, 3.0, QString(), holdTimeLabels, 0.1);
+
     } else if (param == "PauseAOLOnBrake") {
       lateralToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0, 99, QString(), std::map<float, QString>(), 1, true);
 

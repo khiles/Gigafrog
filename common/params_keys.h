@@ -147,6 +147,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"AggressiveJerkSpeedDecrease", {PERSISTENT, FLOAT, "50.0", "50.0", 3}},
     {"AlertVolumeControl", {PERSISTENT, BOOL, "0", "0", 2}},
     {"AlwaysOnLateral", {PERSISTENT, BOOL, "1", "0", 0}},
+    {"AlwaysOnLateralHoldTime", {PERSISTENT, FLOAT, "1.5", "1.5", 1}},
     {"AlwaysOnLateralLKAS", {PERSISTENT, BOOL, "1", "0", 2}},
     {"ApiCache_DriveStats", {PERSISTENT, JSON, "{}", "{}"}},
     {"AutomaticallyDownloadModels", {PERSISTENT, BOOL, "1", "0", 1}},

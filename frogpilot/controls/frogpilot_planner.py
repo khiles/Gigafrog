@@ -105,6 +105,7 @@ class FrogPilotPlanner:
     self.lateral_check |= not (sm["carState"].leftBlinker or sm["carState"].rightBlinker) and frogpilot_toggles.pause_lateral_below_signal
     self.lateral_check |= sm["carState"].standstill
     self.lateral_check &= not sm["frogpilotCarState"].pauseLateral
+    self.lateral_check &= not (sm["carState"].brakePressed and sm["carState"].standstill)
 
     self.model_length = sm["modelV2"].position.x[-1]
 
