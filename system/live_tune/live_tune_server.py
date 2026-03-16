@@ -1106,7 +1106,7 @@ async def stream_handler(request: web.Request) -> web.StreamResponse:
   await resp.prepare(request)
 
   loop = asyncio.get_event_loop()
-  codec = av.CodecContext.create('hevc', 'r')
+  codec = av.CodecContext.create('h264', 'r')
   sm = messaging.SubMaster([service])
   seen_iframe = False
   frame_skip = 0
@@ -1121,11 +1121,10 @@ async def stream_handler(request: web.Request) -> web.StreamResponse:
 
       evta = sm[service]
 
+      # Wait for a keyframe so the decoder has a clean start
       if not seen_iframe:
         if not (evta.idx.flags & V4L2_BUF_FLAG_KEYFRAME):
           continue
-        header = bytes(evta.header)
-        await loop.run_in_executor(None, lambda h=header: codec.decode(av.packet.Packet(h)))
         seen_iframe = True
 
       # Deliver ~10 fps from the 20 Hz source to keep CPU and bandwidth reasonable
@@ -1133,7 +1132,8 @@ async def stream_handler(request: web.Request) -> web.StreamResponse:
       if frame_skip % 2 != 0:
         continue
 
-      raw = bytes(evta.data)
+      # Match webrtc: header (SPS/PPS) + data in one packet
+      raw = bytes(evta.header) + bytes(evta.data)
 
       def _decode_to_jpeg(data: bytes) -> bytes | None:
         frames = codec.decode(av.packet.Packet(data))
