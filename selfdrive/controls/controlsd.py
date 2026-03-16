@@ -56,6 +56,13 @@ class Controls:
     self._resume_curvature = 0.0
     self._resume_blend_t = 1.5  # start "complete" so first engage blends from current angle
 
+    # steeringPressed blend: when driver releases the wheel, blend curvature back to OP's
+    # desired target over POST_PRESS_BLEND_S and halve the jerk rate during that window
+    # to prevent a sudden lateral snap.
+    self._steer_was_pressed = False
+    self._post_press_blend_t = 1.5  # start "complete"
+    self._post_press_curvature = 0.0
+
     self.pose_calibrator = PoseCalibrator()
     self.calibrated_pose: Pose | None = None
 
@@ -143,25 +150,49 @@ class Controls:
     actuators.accel = float(min(self.LoC.update(CC.longActive, CS, long_plan.aTarget, long_plan.shouldStop, pid_accel_limits, self.frogpilot_toggles), self.frogpilot_toggles.max_desired_acceleration))
 
     # Steering PID loop and lateral MPC
-    # On override-end (latActive False→True), blend the curvature target from the
-    # physical angle at resume to OP's desired angle over 1.5 s.  This mirrors the
-    # engage curvature reset but stretched out in time, preventing the carcontroller's
-    # 5°/frame rate cap from being saturated (log analysis showed 14° jumps in 60 ms).
+    # Four curvature-target modes, in priority order:
+    #  1. latActive False             → track physical angle (no snap on re-engage)
+    #  2. steeringPressed True        → track physical angle (no snap on release)
+    #  3. latActive rising edge       → 1.5 s blend from physical to OP desired
+    #  4. steeringPressed falling edge→ 1.5 s blend from physical to OP desired,
+    #                                   jerk rate halved for extra smoothness (#4)
+    #  5. steady-state                → track OP model output
     OVERRIDE_RESUME_BLEND_S = 1.5
+    POST_PRESS_BLEND_S = 1.5
+
+    # Detect steeringPressed falling edge (driver just released wheel)
+    if CC.latActive and self._steer_was_pressed and not CS.steeringPressed:
+      self._post_press_curvature = self.desired_curvature
+      self._post_press_blend_t = 0.0
+    self._steer_was_pressed = CS.steeringPressed
+
+    # Detect latActive rising edge
     if CC.latActive and not self._lat_was_active:
-      # Rising edge — capture physical curvature and reset blend timer
       self._resume_curvature = self.desired_curvature
       self._resume_blend_t = 0.0
     self._lat_was_active = CC.latActive
 
-    if CC.latActive and self._resume_blend_t < OVERRIDE_RESUME_BLEND_S:
+    jerk_scale = 1.0
+    if not CC.latActive:
+      # Inactive: track physical so re-engage is smooth
+      new_desired_curvature = self.curvature
+    elif CS.steeringPressed:
+      # During override: track physical curvature so release is seamless
+      new_desired_curvature = self.curvature
+    elif self._resume_blend_t < OVERRIDE_RESUME_BLEND_S:
+      # latActive rising edge blend
       self._resume_blend_t = min(self._resume_blend_t + DT_CTRL, OVERRIDE_RESUME_BLEND_S)
       alpha = self._resume_blend_t / OVERRIDE_RESUME_BLEND_S
       new_desired_curvature = self._resume_curvature + alpha * (model_v2.action.desiredCurvature - self._resume_curvature)
+    elif self._post_press_blend_t < POST_PRESS_BLEND_S:
+      # steeringPressed release blend — also halve jerk rate to prevent lateral snap
+      self._post_press_blend_t = min(self._post_press_blend_t + DT_CTRL, POST_PRESS_BLEND_S)
+      alpha = self._post_press_blend_t / POST_PRESS_BLEND_S
+      new_desired_curvature = self._post_press_curvature + alpha * (model_v2.action.desiredCurvature - self._post_press_curvature)
+      jerk_scale = 0.5 + 0.5 * alpha  # ramps 0.5 → 1.0 over blend window
     else:
-      # Steady-state: track OP target; inactive: track physical to avoid engage jerk
-      new_desired_curvature = model_v2.action.desiredCurvature if CC.latActive else self.curvature
-    self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll)
+      new_desired_curvature = model_v2.action.desiredCurvature
+    self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll, jerk_scale)
     lat_delay = self.sm["liveDelay"].lateralDelay + LAT_SMOOTH_SECONDS
 
     actuators.curvature = self.desired_curvature

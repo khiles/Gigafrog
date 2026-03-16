@@ -96,6 +96,9 @@ class LatControlTorque(LatControl):
                                         speed=CS.vEgo,
                                         freeze_integrator=freeze_integrator)
       output_torque = self.torque_from_lateral_accel(output_lataccel, self.torque_params)
+      # Blend output authority smoothly to zero on override, back to full on release.
+      # Prevents abrupt torque step when steeringPressed transitions.
+      output_torque *= self._update_driver_blend(CS)
 
       pid_log.active = True
       pid_log.p = float(self.pid.p)

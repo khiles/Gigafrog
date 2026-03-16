@@ -45,9 +45,17 @@ class CarController(CarControllerBase):
     # Canceling is done on rising edge and is handled generically with CC.cruiseControl.cancel
     lat_active = CC.latActive and CS.hands_on_level < 3
 
+    # Gradually reduce steering authority as driver pressure increases instead of a hard cut.
+    # Level 0-1: full authority, Level 2 (medium pressure): 50% authority, Level 3+: disabled.
+    # This creates a smooth cooperative hand-off rather than an abrupt disengage.
+    hands_authority = float(np.interp(CS.hands_on_level, [0, 1, 2, 3], [1.0, 1.0, 0.5, 0.0])) if CC.latActive else 0.0
+    # Blend angle command towards current steering angle when authority < 1
+    steer_angle_cmd = (CS.out.steeringAngleDeg +
+                       hands_authority * (actuators.steeringAngleDeg - CS.out.steeringAngleDeg))
+
     if self.frame % 2 == 0:
       # Angular rate limit based on speed
-      self.apply_angle_last = apply_steer_angle_limits_vm(actuators.steeringAngleDeg, self.apply_angle_last, CS.out.vEgoRaw, CS.out.steeringAngleDeg,
+      self.apply_angle_last = apply_steer_angle_limits_vm(steer_angle_cmd, self.apply_angle_last, CS.out.vEgoRaw, CS.out.steeringAngleDeg,
                                                           lat_active, CarControllerParams, self.VM)
 
       if self.CP.carFingerprint in LEGACY_CARS:
