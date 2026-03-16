@@ -162,13 +162,13 @@ class Controls:
 
     # Detect steeringPressed falling edge (driver just released wheel)
     if CC.latActive and self._steer_was_pressed and not CS.steeringPressed:
-      self._post_press_curvature = self.desired_curvature
+      self._post_press_curvature = self.curvature  # seed from physical, not desired (avoids lag-induced snap)
       self._post_press_blend_t = 0.0
     self._steer_was_pressed = CS.steeringPressed
 
     # Detect latActive rising edge
     if CC.latActive and not self._lat_was_active:
-      self._resume_curvature = self.desired_curvature
+      self._resume_curvature = self.curvature  # seed from physical, not desired (avoids lag-induced snap)
       self._resume_blend_t = 0.0
     self._lat_was_active = CC.latActive
 

@@ -231,6 +231,11 @@ class CarState(CarStateBase):
     else:
       ret.seatbeltUnlatched = cp_chassis.vl["SDM1"]["SDM_bcklDrivStatus"] != 1
 
+    # Blindspot (HW3 only - AP module broadcasts AutopilotStatus on chassis bus)
+    if self.CP.carFingerprint == CAR.TESLA_MODEL_S_HW3:
+      ret.leftBlindspot = cp_chassis.vl["AutopilotStatus"]["DAS_blindSpotRearLeft"] != 0
+      ret.rightBlindspot = cp_chassis.vl["AutopilotStatus"]["DAS_blindSpotRearRight"] != 0
+
     # AEB
     ret.stockAeb = cp_ap_pt.vl["DAS_control"]["DAS_aebEvent"] == 1
 
