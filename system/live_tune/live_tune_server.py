@@ -17,9 +17,11 @@ Parameter write path
    the new values within one planning cycle (~100 ms).
 """
 
+import argparse
 import asyncio
 import json
 import logging
+from pathlib import Path
 from typing import Any
 
 from aiohttp import web, WSMsgType
@@ -894,13 +896,19 @@ connect();
 </html>
 """
 
+# Pre-build once at import time — PARAMS is static so there's no reason to
+# re-render on every HTTP request (and definitely not on the device at runtime).
+_DASHBOARD_HTML: str = _HTML.replace('__PARAMS_META__', json.dumps(
+  {k: {ek: ev for ek, ev in v.items() if ek != 'secret'} for k, v in PARAMS.items()}
+))
+
+# Path where `--build` writes the pre-baked file so the device can serve it
+# as a raw file read with zero processing.
+_BUILT_HTML_PATH = Path(__file__).parent / 'dashboard.html'
+
 
 async def dashboard_handler(request: web.Request) -> web.Response:
-  # Inject PARAMS metadata as JSON so the JS can build controls dynamically
-  params_json = json.dumps({k: {ek: ev for ek, ev in v.items() if ek != 'secret'}
-                            for k, v in PARAMS.items()})
-  html = _HTML.replace('__PARAMS_META__', params_json)
-  return web.Response(text=html, content_type='text/html')
+  return web.Response(text=_DASHBOARD_HTML, content_type='text/html')
 
 
 async def _on_shutdown(app: web.Application) -> None:
@@ -929,4 +937,16 @@ def main() -> None:
 
 
 if __name__ == '__main__':
-  main()
+  parser = argparse.ArgumentParser(description='Live Tune Dashboard server')
+  parser.add_argument('--build', action='store_true',
+                      help='Write the pre-baked dashboard.html to disk and exit. '
+                           'Run this on your dev machine after changing PARAMS, '
+                           'then commit the result so the Comma 3x never has to '
+                           'generate the HTML at runtime.')
+  args = parser.parse_args()
+
+  if args.build:
+    _BUILT_HTML_PATH.write_text(_DASHBOARD_HTML, encoding='utf-8')
+    print(f'Built → {_BUILT_HTML_PATH}  ({len(_DASHBOARD_HTML):,} bytes)')
+  else:
+    main()
