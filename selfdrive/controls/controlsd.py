@@ -49,6 +49,13 @@ class Controls:
     self.curvature = 0.0
     self.desired_curvature = 0.0
 
+    # Override-resume blend: track transition from inactive→active so the curvature
+    # target ramps from physical to OP-desired over OVERRIDE_RESUME_BLEND_S instead of
+    # stepping immediately (which saturates the carcontroller 5°/frame rate cap).
+    self._lat_was_active = False
+    self._resume_curvature = 0.0
+    self._resume_blend_t = 1.5  # start "complete" so first engage blends from current angle
+
     self.pose_calibrator = PoseCalibrator()
     self.calibrated_pose: Pose | None = None
 
@@ -136,8 +143,24 @@ class Controls:
     actuators.accel = float(min(self.LoC.update(CC.longActive, CS, long_plan.aTarget, long_plan.shouldStop, pid_accel_limits, self.frogpilot_toggles), self.frogpilot_toggles.max_desired_acceleration))
 
     # Steering PID loop and lateral MPC
-    # Reset desired curvature to current to avoid violating the limits on engage
-    new_desired_curvature = model_v2.action.desiredCurvature if CC.latActive else self.curvature
+    # On override-end (latActive False→True), blend the curvature target from the
+    # physical angle at resume to OP's desired angle over 1.5 s.  This mirrors the
+    # engage curvature reset but stretched out in time, preventing the carcontroller's
+    # 5°/frame rate cap from being saturated (log analysis showed 14° jumps in 60 ms).
+    OVERRIDE_RESUME_BLEND_S = 1.5
+    if CC.latActive and not self._lat_was_active:
+      # Rising edge — capture physical curvature and reset blend timer
+      self._resume_curvature = self.desired_curvature
+      self._resume_blend_t = 0.0
+    self._lat_was_active = CC.latActive
+
+    if CC.latActive and self._resume_blend_t < OVERRIDE_RESUME_BLEND_S:
+      self._resume_blend_t = min(self._resume_blend_t + DT_CTRL, OVERRIDE_RESUME_BLEND_S)
+      alpha = self._resume_blend_t / OVERRIDE_RESUME_BLEND_S
+      new_desired_curvature = self._resume_curvature + alpha * (model_v2.action.desiredCurvature - self._resume_curvature)
+    else:
+      # Steady-state: track OP target; inactive: track physical to avoid engage jerk
+      new_desired_curvature = model_v2.action.desiredCurvature if CC.latActive else self.curvature
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll)
     lat_delay = self.sm["liveDelay"].lateralDelay + LAT_SMOOTH_SECONDS
 
