@@ -527,14 +527,6 @@ select{background:var(--bg3);color:var(--txt);border:1px solid var(--brd);border
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);padding:9px 16px;border-radius:8px;font-size:13px;font-weight:500;z-index:100;opacity:0;transition:opacity .3s;pointer-events:none;max-width:92vw;text-align:center}
 .toast.err{background:#b91c1c;color:#fef2f2}.toast.ok{background:#166534;color:#dcfce7}
 .toast.show{opacity:1}
-.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
-.modal-bg.open{opacity:1;pointer-events:auto}
-.modal{background:var(--bg2);border:1px solid var(--brd);border-radius:14px;padding:20px;text-align:center;max-width:300px;width:90%}
-.modal h3{font-size:14px;font-weight:700;margin-bottom:14px;color:var(--txt)}
-#qrBox{background:#fff;padding:10px;border-radius:8px;display:inline-block;line-height:0}
-.modal-url{font-size:10px;color:var(--muted);margin-top:10px;word-break:break-all;line-height:1.4}
-.modal-close{margin-top:14px;background:var(--bg3);border:1px solid var(--brd);color:var(--muted);border-radius:6px;padding:5px 16px;font-size:12px;cursor:pointer;font-weight:600}
-.modal-close:hover{background:var(--brd)}
 </style>
 </head>
 <body>
@@ -543,7 +535,6 @@ select{background:var(--bg3);color:var(--txt);border:1px solid var(--brd);border
   <h1>openpilot &mdash; Live Tune</h1>
   <div class="hdr-right">
     <input type="text" id="searchInput" placeholder="&#128269; Search params&hellip;" oninput="filterParams(this.value)">
-    <button class="hdr-btn" id="qrBtn" onclick="showQR()" title="Scan to open on phone">&#128247;</button>
     <button class="hdr-btn" id="installBtn" style="display:none" onclick="installPWA()" title="Install as app">&#43; Install</button>
     <button id="themeBtn" class="hdr-btn" onclick="toggleTheme()" title="Toggle light/dark mode">&#9790;</button>
     <button class="hdr-btn" onclick="exportConfig()">&#8595; Export</button>
@@ -552,16 +543,6 @@ select{background:var(--bg3);color:var(--txt);border:1px solid var(--brd);border
   </div>
 </header>
 <div class="toast err" id="toast"></div>
-
-<!-- QR code modal -->
-<div class="modal-bg" id="qrModal" onclick="if(event.target===this)closeQR()">
-  <div class="modal">
-    <h3>&#128247; Open on Phone</h3>
-    <div id="qrBox"></div>
-    <div class="modal-url" id="qrUrl"></div>
-    <button class="modal-close" onclick="closeQR()">Close</button>
-  </div>
-</div>
 
 <div class="tabs">
   <button class="tab active" onclick="showPage('live',this)">Live</button>
@@ -920,22 +901,6 @@ function flashAck(key) {
 buildPages();
 connect();
 
-// ── QR code ────────────────────────────────────────────────────────────────
-function showQR() {
-  const url = location.href.replace(/\/qr$/, '');
-  document.getElementById('qrUrl').textContent = url;
-  const box = document.getElementById('qrBox');
-  box.innerHTML = '';
-  if (window.QRCode) {
-    new QRCode(box, {text: url, width: 200, height: 200, colorDark: '#000000', colorLight: '#ffffff'});
-  } else {
-    // fallback: plain text link if CDN unavailable
-    box.innerHTML = '<a href="' + url + '" style="font-size:11px;color:#000;word-break:break-all;padding:8px;display:block">' + url + '</a>';
-  }
-  document.getElementById('qrModal').classList.add('open');
-}
-function closeQR() { document.getElementById('qrModal').classList.remove('open'); }
-
 // ── PWA install prompt ──────────────────────────────────────────────────────
 let _deferredInstall = null;
 window.addEventListener('beforeinstallprompt', e => {
@@ -960,7 +925,6 @@ if ('serviceWorker' in navigator) {
   });
 }
 </script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" crossorigin="anonymous" defer></script>
 </body>
 </html>
 """

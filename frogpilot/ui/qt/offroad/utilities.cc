@@ -1,3 +1,11 @@
+#include <QDialog>
+#include <QLabel>
+#include <QPixmap>
+#include <QPointer>
+#include <QPushButton>
+#include <QUrl>
+#include <QVBoxLayout>
+
 #include "frogpilot/ui/qt/offroad/utilities.h"
 
 FrogPilotUtilitiesPanel::FrogPilotUtilitiesPanel(FrogPilotSettingsWindow *parent, bool forceOpen) : FrogPilotListWidget(parent), parent(parent) {
@@ -5,6 +13,17 @@ FrogPilotUtilitiesPanel::FrogPilotUtilitiesPanel(FrogPilotSettingsWindow *parent
   pairingPollTimer = new QTimer(this);
 
   forceOpenDescriptions = forceOpen;
+
+  // ── Live Tune Dashboard ────────────────────────────────────────────────────
+  ButtonControl *liveTuneBtn = new ButtonControl(
+    tr("Live Tune Dashboard"),
+    tr("SHOW QR"),
+    tr("<b>Open the Live Tune Dashboard on any phone or computer on the same Wi-Fi network.</b> "
+       "A QR code will appear — scan it or type the URL shown into any browser.")
+  );
+  QObject::connect(liveTuneBtn, &ButtonControl::clicked, this, &FrogPilotUtilitiesPanel::showLiveTuneQR);
+  if (forceOpenDescriptions) liveTuneBtn->showDescription();
+  addItem(liveTuneBtn);
 
   ParamControl *debugModeToggle = new ParamControl("DebugMode", tr("Debug Mode"), tr("<b>Use all of FrogPilot's developer metrics on your next drive</b> to diagnose issues and improve bug reports."), "");
   if (forceOpenDescriptions) {
@@ -366,4 +385,83 @@ void FrogPilotUtilitiesPanel::showEvent(QShowEvent *event) {
 
   bool isPaired = params.getBool("PondPaired");
   pondButton->setText(isPaired ? tr("UNPAIR") : tr("PAIR"));
+}
+
+void FrogPilotUtilitiesPanel::showLiveTuneQR() {
+  QString ip = frogpilotUIState()->wifi->getIp4Address();
+  if (ip.isEmpty()) {
+    ConfirmationDialog::alert(tr("Device is not connected to Wi-Fi.\nConnect to Wi-Fi first, then try again."), this);
+    return;
+  }
+
+  QString url = QString("http://%1:8765").arg(ip);
+
+  QDialog *dialog = new QDialog(this);
+  dialog->setModal(true);
+  dialog->setWindowFlags(Qt::FramelessWindowHint | Qt::Dialog);
+  dialog->setStyleSheet("QDialog { background-color: #1B1B1B; border-radius: 30px; }");
+  dialog->setFixedSize(680, 780);
+
+  QVBoxLayout *layout = new QVBoxLayout(dialog);
+  layout->setContentsMargins(40, 36, 40, 36);
+  layout->setSpacing(16);
+
+  QLabel *title = new QLabel(tr("Live Tune Dashboard"));
+  title->setAlignment(Qt::AlignCenter);
+  title->setStyleSheet("color: white; font-size: 46px; font-weight: 600;");
+  layout->addWidget(title);
+
+  // QR image — starts as a loading placeholder, filled once the network reply arrives
+  QLabel *qrLabel = new QLabel(tr("Fetching QR code\u2026"));
+  qrLabel->setAlignment(Qt::AlignCenter);
+  qrLabel->setFixedSize(480, 480);
+  qrLabel->setWordWrap(true);
+  qrLabel->setStyleSheet("color: #8b949e; font-size: 28px; background: #2d2d2d; border-radius: 12px;");
+  layout->addWidget(qrLabel, 0, Qt::AlignCenter);
+
+  QLabel *urlLabel = new QLabel(url);
+  urlLabel->setAlignment(Qt::AlignCenter);
+  urlLabel->setStyleSheet("color: #58a6ff; font-size: 38px; font-weight: 700;");
+  layout->addWidget(urlLabel);
+
+  QLabel *hint = new QLabel(tr("Scan with your phone or type the URL above into any browser on the same Wi-Fi network"));
+  hint->setAlignment(Qt::AlignCenter);
+  hint->setWordWrap(true);
+  hint->setStyleSheet("color: #8b949e; font-size: 24px;");
+  layout->addWidget(hint);
+
+  QPushButton *closeBtn = new QPushButton(tr("Close"));
+  closeBtn->setStyleSheet(
+    "QPushButton { background: #333; color: white; border: none; border-radius: 10px;"
+    "  padding: 16px 60px; font-size: 34px; font-weight: 600; }"
+    "QPushButton:pressed { background: #444; }"
+  );
+  QObject::connect(closeBtn, &QPushButton::clicked, dialog, &QDialog::accept);
+  layout->addWidget(closeBtn, 0, Qt::AlignCenter);
+
+  // Fetch QR code PNG from api.qrserver.com (480×480, no border)
+  QString encodedUrl = QString(QUrl::toPercentEncoding(url));
+  QString qrApiUrl = QString("https://api.qrserver.com/v1/create-qr-code/?size=480x480&margin=1&data=%1").arg(encodedUrl);
+  QNetworkReply *reply = networkManager->get(QNetworkRequest(QUrl(qrApiUrl)));
+
+  QPointer<QLabel> safeLabel(qrLabel);
+  QObject::connect(reply, &QNetworkReply::finished, [reply, safeLabel]() {
+    reply->deleteLater();
+    if (!safeLabel) return;
+    if (reply->error() != QNetworkReply::NoError) {
+      safeLabel->setText(QObject::tr("Could not fetch QR code.\nType the URL above into your browser."));
+      return;
+    }
+    QPixmap px;
+    if (px.loadFromData(reply->readAll()) && !px.isNull()) {
+      safeLabel->setPixmap(px.scaled(480, 480, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+      safeLabel->setStyleSheet("background: white; border-radius: 12px; padding: 4px;");
+    }
+  });
+
+  dialog->exec();
+
+  // Abort any in-flight request if dialog was closed before image arrived
+  if (!reply->isFinished()) reply->abort();
+  delete dialog;
 }

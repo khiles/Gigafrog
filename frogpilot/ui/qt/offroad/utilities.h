@@ -12,6 +12,8 @@ protected:
   void showEvent(QShowEvent *event) override;
 
 private:
+  void showLiveTuneQR();
+
   bool forceOpenDescriptions;
 
   ButtonControl *pondButton;
