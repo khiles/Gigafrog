@@ -440,6 +440,12 @@ _HTML = """\
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>openpilot Live Tune Dashboard</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icon.svg">
+<meta name="theme-color" content="#0d1117" id="themeColor">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Live Tune">
 <style>
 :root{
   --bg:#0d1117;--bg2:#161b22;--bg3:#21262d;--brd:#30363d;
@@ -521,6 +527,14 @@ select{background:var(--bg3);color:var(--txt);border:1px solid var(--brd);border
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);padding:9px 16px;border-radius:8px;font-size:13px;font-weight:500;z-index:100;opacity:0;transition:opacity .3s;pointer-events:none;max-width:92vw;text-align:center}
 .toast.err{background:#b91c1c;color:#fef2f2}.toast.ok{background:#166534;color:#dcfce7}
 .toast.show{opacity:1}
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;display:flex;align-items:center;justify-content:center;opacity:0;pointer-events:none;transition:opacity .2s}
+.modal-bg.open{opacity:1;pointer-events:auto}
+.modal{background:var(--bg2);border:1px solid var(--brd);border-radius:14px;padding:20px;text-align:center;max-width:300px;width:90%}
+.modal h3{font-size:14px;font-weight:700;margin-bottom:14px;color:var(--txt)}
+#qrBox{background:#fff;padding:10px;border-radius:8px;display:inline-block;line-height:0}
+.modal-url{font-size:10px;color:var(--muted);margin-top:10px;word-break:break-all;line-height:1.4}
+.modal-close{margin-top:14px;background:var(--bg3);border:1px solid var(--brd);color:var(--muted);border-radius:6px;padding:5px 16px;font-size:12px;cursor:pointer;font-weight:600}
+.modal-close:hover{background:var(--brd)}
 </style>
 </head>
 <body>
@@ -529,6 +543,8 @@ select{background:var(--bg3);color:var(--txt);border:1px solid var(--brd);border
   <h1>openpilot &mdash; Live Tune</h1>
   <div class="hdr-right">
     <input type="text" id="searchInput" placeholder="&#128269; Search params&hellip;" oninput="filterParams(this.value)">
+    <button class="hdr-btn" id="qrBtn" onclick="showQR()" title="Scan to open on phone">&#128247;</button>
+    <button class="hdr-btn" id="installBtn" style="display:none" onclick="installPWA()" title="Install as app">&#43; Install</button>
     <button id="themeBtn" class="hdr-btn" onclick="toggleTheme()" title="Toggle light/dark mode">&#9790;</button>
     <button class="hdr-btn" onclick="exportConfig()">&#8595; Export</button>
     <label class="hdr-btn" style="cursor:pointer">&#8593; Import<input type="file" accept=".json" style="display:none" onchange="importConfig(event)"></label>
@@ -536,6 +552,16 @@ select{background:var(--bg3);color:var(--txt);border:1px solid var(--brd);border
   </div>
 </header>
 <div class="toast err" id="toast"></div>
+
+<!-- QR code modal -->
+<div class="modal-bg" id="qrModal" onclick="if(event.target===this)closeQR()">
+  <div class="modal">
+    <h3>&#128247; Open on Phone</h3>
+    <div id="qrBox"></div>
+    <div class="modal-url" id="qrUrl"></div>
+    <button class="modal-close" onclick="closeQR()">Close</button>
+  </div>
+</div>
 
 <div class="tabs">
   <button class="tab active" onclick="showPage('live',this)">Live</button>
@@ -650,6 +676,8 @@ function toggleTheme() {
   const isLight = document.body.classList.toggle('light');
   localStorage.setItem('theme', isLight ? 'light' : 'dark');
   document.getElementById('themeBtn').textContent = isLight ? '\u2600' : '\u263E';
+  const mc = document.getElementById('themeColor');
+  if (mc) mc.content = isLight ? '#f6f8fa' : '#0d1117';
 }
 
 // Sync button icon on load
@@ -891,7 +919,48 @@ function flashAck(key) {
 
 buildPages();
 connect();
+
+// ── QR code ────────────────────────────────────────────────────────────────
+function showQR() {
+  const url = location.href.replace(/\/qr$/, '');
+  document.getElementById('qrUrl').textContent = url;
+  const box = document.getElementById('qrBox');
+  box.innerHTML = '';
+  if (window.QRCode) {
+    new QRCode(box, {text: url, width: 200, height: 200, colorDark: '#000000', colorLight: '#ffffff'});
+  } else {
+    // fallback: plain text link if CDN unavailable
+    box.innerHTML = '<a href="' + url + '" style="font-size:11px;color:#000;word-break:break-all;padding:8px;display:block">' + url + '</a>';
+  }
+  document.getElementById('qrModal').classList.add('open');
+}
+function closeQR() { document.getElementById('qrModal').classList.remove('open'); }
+
+// ── PWA install prompt ──────────────────────────────────────────────────────
+let _deferredInstall = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  _deferredInstall = e;
+  document.getElementById('installBtn').style.display = '';
+});
+window.addEventListener('appinstalled', () => {
+  document.getElementById('installBtn').style.display = 'none';
+  _deferredInstall = null;
+});
+function installPWA() {
+  if (!_deferredInstall) return;
+  _deferredInstall.prompt();
+  _deferredInstall.userChoice.then(() => { _deferredInstall = null; });
+}
+
+// ── Service worker registration ─────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" crossorigin="anonymous" defer></script>
 </body>
 </html>
 """
@@ -911,6 +980,109 @@ async def dashboard_handler(request: web.Request) -> web.Response:
   return web.Response(text=_DASHBOARD_HTML, content_type='text/html')
 
 
+# ── PWA static assets ─────────────────────────────────────────────────────────
+
+_MANIFEST = json.dumps({
+  'name': 'openpilot Live Tune',
+  'short_name': 'Live Tune',
+  'description': 'Real-time parameter tuning dashboard for openpilot / FrogPilot',
+  'display': 'standalone',
+  'orientation': 'any',
+  'start_url': '/',
+  'theme_color': '#0d1117',
+  'background_color': '#0d1117',
+  'icons': [
+    {'src': '/icon.svg', 'sizes': 'any', 'type': 'image/svg+xml', 'purpose': 'any maskable'},
+  ],
+})
+
+# Minimal service worker: cache-first for static assets, network-only for WS/API
+_SW_JS = """\
+const CACHE = 'live-tune-v1';
+const PRECACHE = ['/', '/manifest.json', '/icon.svg'];
+
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(PRECACHE)));
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', e => {
+  e.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', e => {
+  const url = e.request.url;
+  if (url.includes('/ws') || url.includes('/api/') || url.includes('/qr')) return;
+  e.respondWith(
+    caches.match(e.request).then(cached => {
+      const fresh = fetch(e.request).then(r => {
+        if (r.ok) caches.open(CACHE).then(c => c.put(e.request, r.clone()));
+        return r;
+      });
+      return cached || fresh;
+    })
+  );
+});
+"""
+
+# Simple green "LT" icon — no external dependency
+_ICON_SVG = """\
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="22" fill="#0d1117"/>
+  <text x="50" y="67" font-family="'Segoe UI',system-ui,monospace" font-size="48"
+        font-weight="700" fill="#3fb950" text-anchor="middle">LT</text>
+</svg>"""
+
+# Full-screen QR page — load this URL on the device screen so others can scan
+_QR_PAGE = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Live Tune — QR Code</title>
+<style>
+  body{margin:0;background:#000;display:flex;flex-direction:column;
+       align-items:center;justify-content:center;min-height:100vh;
+       font-family:monospace;color:#fff;padding:20px;box-sizing:border-box}
+  #qrbox{background:#fff;padding:14px;border-radius:10px;line-height:0;margin-bottom:16px}
+  p{font-size:12px;opacity:.6;text-align:center;word-break:break-all;max-width:280px}
+  h2{font-size:14px;opacity:.8;margin-bottom:16px}
+</style>
+</head>
+<body>
+<h2>&#128247; Scan to open Live Tune</h2>
+<div id="qrbox"></div>
+<p id="url"></p>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" crossorigin="anonymous"></script>
+<script>
+  const url = location.href.replace('/qr', '') || location.origin;
+  document.getElementById('url').textContent = url;
+  new QRCode(document.getElementById('qrbox'), {
+    text: url, width: 240, height: 240, colorDark: '#000', colorLight: '#fff'
+  });
+</script>
+</body>
+</html>"""
+
+
+async def manifest_handler(request: web.Request) -> web.Response:
+  return web.Response(text=_MANIFEST, content_type='application/manifest+json')
+
+async def sw_handler(request: web.Request) -> web.Response:
+  return web.Response(text=_SW_JS, content_type='application/javascript')
+
+async def icon_handler(request: web.Request) -> web.Response:
+  return web.Response(text=_ICON_SVG, content_type='image/svg+xml')
+
+async def qr_handler(request: web.Request) -> web.Response:
+  return web.Response(text=_QR_PAGE, content_type='text/html')
+
+
 async def _on_shutdown(app: web.Application) -> None:
   for ws in list(app['websockets']):
     await ws.close()
@@ -925,6 +1097,10 @@ def main() -> None:
   app.on_shutdown.append(_on_shutdown)
 
   app.router.add_get('/',             dashboard_handler)
+  app.router.add_get('/manifest.json', manifest_handler)
+  app.router.add_get('/sw.js',        sw_handler)
+  app.router.add_get('/icon.svg',     icon_handler)
+  app.router.add_get('/qr',           qr_handler)
   app.router.add_get('/ws',           websocket_handler)
   app.router.add_get('/api/params',   api_get_params)
   app.router.add_post('/api/params',  api_post_params)
