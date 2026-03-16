@@ -132,7 +132,6 @@ if HARDWARE.get_device_type() == "mici":
 elif TICI:
   procs.append(NativeProcess("ui", "selfdrive/ui", ["./ui"], always_run, watchdog_max_dt=5)),
 procs += [
-  PythonProcess("live_tune_server", "system.live_tune.live_tune_server", always_run),
   PythonProcess("device_syncd", "frogpilot.system.device_syncd", always_run),
   PythonProcess("frogpilot_process", "frogpilot.frogpilot_process", always_run),
   NativeProcess("mapd", "frogpilot/navigation", ["./mapd"], always_run),

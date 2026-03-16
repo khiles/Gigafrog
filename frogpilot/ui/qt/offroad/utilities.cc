@@ -6,16 +6,6 @@ FrogPilotUtilitiesPanel::FrogPilotUtilitiesPanel(FrogPilotSettingsWindow *parent
 
   forceOpenDescriptions = forceOpen;
 
-  // ── Live Tune Dashboard ────────────────────────────────────────────────────
-  liveTuneIpLabel = new LabelControl(
-    tr("Live Tune Dashboard"),
-    tr("Not connected"),
-    tr("<b>Open the Live Tune Dashboard from any phone or computer on the same Wi-Fi network.</b> "
-       "Type the address shown into any browser.")
-  );
-  if (forceOpenDescriptions) liveTuneIpLabel->showDescription();
-  addItem(liveTuneIpLabel);
-
   ParamControl *debugModeToggle = new ParamControl("DebugMode", tr("Debug Mode"), tr("<b>Use all of FrogPilot's developer metrics on your next drive</b> to diagnose issues and improve bug reports."), "");
   if (forceOpenDescriptions) {
     debugModeToggle->showDescription();
@@ -376,7 +366,4 @@ void FrogPilotUtilitiesPanel::showEvent(QShowEvent *event) {
 
   bool isPaired = params.getBool("PondPaired");
   pondButton->setText(isPaired ? tr("UNPAIR") : tr("PAIR"));
-
-  QString ip = frogpilotUIState()->wifi->getIp4Address();
-  liveTuneIpLabel->setText(ip.isEmpty() ? tr("Not connected") : QString("http://%1:8765").arg(ip));
 }
