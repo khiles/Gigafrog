@@ -19,11 +19,13 @@ Parameter write path
 
 import argparse
 import asyncio
+import io
 import json
 import logging
 from pathlib import Path
 from typing import Any
 
+import av
 from aiohttp import web, WSMsgType
 
 from cereal import messaging
@@ -31,6 +33,13 @@ from openpilot.common.params import Params
 
 PORT = 8765
 CEREAL_SERVICES = ['liveTorqueParameters', 'liveParameters', 'carState', 'controlsState', 'deviceState']
+
+STREAM_CAMERAS = {
+  'road':   'livestreamRoadEncodeData',
+  'wide':   'livestreamWideRoadEncodeData',
+  'driver': 'livestreamDriverEncodeData',
+}
+V4L2_BUF_FLAG_KEYFRAME = 8
 
 # ── Parameter registry ────────────────────────────────────────────────────────
 # type: 'bool'|'int'|'float'|'string'  category: tab grouping
@@ -477,6 +486,12 @@ header h1{font-size:15px;font-weight:600}
 .tab.active{background:var(--grn2);color:#fff}
 .page{display:none;padding:10px 12px;max-width:1200px}
 .page.active{display:block}
+.cam-wrap{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px 0}
+.cam-sel{display:flex;gap:6px}
+.cam-btn{padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:var(--bg3);color:var(--muted);border:none;transition:all .15s}
+.cam-btn.active{background:var(--grn2);color:#fff}
+.cam-img{width:100%;max-width:900px;border-radius:10px;border:1px solid var(--brd);background:var(--bg2);aspect-ratio:16/9;object-fit:contain}
+.cam-hint{font-size:11px;color:var(--muted);text-align:center}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:10px}
 .card{background:var(--bg2);border:1px solid var(--brd);border-radius:10px;padding:12px}
 .card h2{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:9px}
@@ -557,6 +572,7 @@ select{background:var(--bg3);color:var(--txt);border:1px solid var(--brd);border
   <button class="tab" onclick="showPage('ui',this)">UI</button>
   <button class="tab" onclick="showPage('device',this)">Device</button>
   <button class="tab" onclick="showPage('mapbox',this)">Mapbox</button>
+  <button class="tab" onclick="showPage('camera',this)">&#127910; Camera</button>
 </div>
 
 <!-- ── LIVE DATA ───────────────────────────────────────────── -->
@@ -641,6 +657,18 @@ select{background:var(--bg3);color:var(--txt);border:1px solid var(--brd);border
 <div class="page" id="page-ui"></div>
 <div class="page" id="page-mapbox"></div>
 
+<div class="page" id="page-camera">
+  <div class="cam-wrap">
+    <div class="cam-sel">
+      <button class="cam-btn active" onclick="setCam('road',this)">Road</button>
+      <button class="cam-btn" onclick="setCam('wide',this)">Wide</button>
+      <button class="cam-btn" onclick="setCam('driver',this)">Driver</button>
+    </div>
+    <img id="camImg" class="cam-img" alt="Live camera stream" />
+    <p class="cam-hint">Stream is active while this tab is open. Requires an active drive.</p>
+  </div>
+</div>
+
 <script>
 // Apply saved theme immediately to avoid flash of wrong theme
 (function(){
@@ -682,6 +710,24 @@ function showPage(id, btn) {
   currentPage = id;
   const q = document.getElementById('searchInput').value;
   if (q) filterParams(q);
+  if (id === 'camera') startStream(); else stopStream();
+}
+
+// ── Camera stream ───────────────────────────────────────────────────────────
+let currentCam = 'road';
+function setCam(cam, btn) {
+  currentCam = cam;
+  document.querySelectorAll('.cam-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (currentPage === 'camera') startStream();
+}
+function startStream() {
+  const img = document.getElementById('camImg');
+  if (img) img.src = '/stream?cam=' + currentCam + '&_=' + Date.now();
+}
+function stopStream() {
+  const img = document.getElementById('camImg');
+  if (img) img.src = '';
 }
 
 function buildPages() {
@@ -1047,6 +1093,73 @@ async def qr_handler(request: web.Request) -> web.Response:
   return web.Response(text=_QR_PAGE, content_type='text/html')
 
 
+async def stream_handler(request: web.Request) -> web.StreamResponse:
+  """MJPEG endpoint — decodes the openpilot livestream encode and pushes JPEG frames."""
+  cam = request.rel_url.query.get('cam', 'road')
+  service = STREAM_CAMERAS.get(cam, 'livestreamRoadEncodeData')
+
+  resp = web.StreamResponse(headers={
+    'Cache-Control': 'no-cache, no-store',
+    'Pragma': 'no-cache',
+  })
+  resp.content_type = 'multipart/x-mixed-replace; boundary=frame'
+  await resp.prepare(request)
+
+  loop = asyncio.get_event_loop()
+  codec = av.CodecContext.create('hevc', 'r')
+  sm = messaging.SubMaster([service])
+  seen_iframe = False
+  frame_skip = 0
+
+  try:
+    while True:
+      # sm.update() is blocking — run in executor so we don't stall the event loop
+      await loop.run_in_executor(None, sm.update, 200)
+
+      if not sm.updated[service]:
+        continue
+
+      evta = sm[service]
+
+      if not seen_iframe:
+        if not (evta.idx.flags & V4L2_BUF_FLAG_KEYFRAME):
+          continue
+        header = bytes(evta.header)
+        await loop.run_in_executor(None, lambda h=header: codec.decode(av.packet.Packet(h)))
+        seen_iframe = True
+
+      # Deliver ~10 fps from the 20 Hz source to keep CPU and bandwidth reasonable
+      frame_skip += 1
+      if frame_skip % 2 != 0:
+        continue
+
+      raw = bytes(evta.data)
+
+      def _decode_to_jpeg(data: bytes) -> bytes | None:
+        frames = codec.decode(av.packet.Packet(data))
+        if not frames:
+          return None
+        buf = io.BytesIO()
+        frames[0].to_image().save(buf, format='JPEG', quality=70)
+        return buf.getvalue()
+
+      jpeg = await loop.run_in_executor(None, _decode_to_jpeg, raw)
+      if jpeg is None:
+        continue
+
+      await resp.write(
+        b'--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ' +
+        str(len(jpeg)).encode() + b'\r\n\r\n' + jpeg + b'\r\n'
+      )
+
+  except (ConnectionResetError, asyncio.CancelledError):
+    pass
+  except Exception as exc:
+    logging.getLogger('live_tune').warning('stream_handler error: %s', exc)
+
+  return resp
+
+
 async def _on_shutdown(app: web.Application) -> None:
   for ws in list(app['websockets']):
     await ws.close()
@@ -1065,6 +1178,7 @@ def main() -> None:
   app.router.add_get('/sw.js',        sw_handler)
   app.router.add_get('/icon.svg',     icon_handler)
   app.router.add_get('/qr',           qr_handler)
+  app.router.add_get('/stream',       stream_handler)
   app.router.add_get('/ws',           websocket_handler)
   app.router.add_get('/api/params',   api_get_params)
   app.router.add_post('/api/params',  api_post_params)
