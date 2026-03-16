@@ -1,0 +1,209 @@
+name: Build Khiles Release (Prebuilt)
+
+# Produces a pre-compiled release branch so the Comma 3x skips scons on boot.
+# When a branch contains a 'prebuilt' file, launch_chffrplus.sh skips build.py
+# entirely — the device boots straight into openpilot without any compilation.
+#
+# HOW TO USE
+# ----------
+# Option A – Self-hosted runner (recommended, same approach as FrogPilot):
+#   1. Register your Comma 3x as a GitHub Actions self-hosted runner:
+#      https://docs.github.com/en/actions/hosting-your-own-runners/adding-self-hosted-runners
+#      Label the runner "c3x".
+#   2. Trigger this workflow manually or push to the source branch.
+#   3. The runner field below selects the runner type.
+#
+# Option B – GitHub hosted runner with QEMU (no extra hardware needed):
+#   1. Set runner input to "ubuntu-latest" when triggering manually.
+#   2. The workflow will use Docker + QEMU to cross-compile for ARM64.
+#      Expect ~4-6 hours build time due to emulation overhead.
+#
+# OUTPUT
+# ------
+# Pushes a clean pre-built commit to the branch set in 'release_branch'.
+# Install on device: cd /data && git clone <repo> -b <release_branch> openpilot
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: "Runner to build on (use 'c3x' for self-hosted Comma 3x, or 'ubuntu-latest' for QEMU cross-compile)"
+        type: choice
+        options:
+          - c3x
+          - ubuntu-latest
+        default: "c3x"
+        required: true
+      release_branch:
+        description: "Branch to push the pre-built result to"
+        type: string
+        default: "khiles-prebuilt"
+        required: true
+      source_branch:
+        description: "Source branch to compile (leave blank = current default branch)"
+        type: string
+        default: ""
+        required: false
+  push:
+    branches:
+      - main
+      - master
+
+env:
+  GIT_NAME:  "khiles-bot"
+  GIT_EMAIL: "khiles-bot@users.noreply.github.com"
+  # On self-hosted runners openpilot lives at /data/openpilot.
+  # On hosted runners we check out into the workspace.
+  BUILD_DIR_DEVICE: "/data/openpilot"
+
+jobs:
+  # ── Self-hosted C3X build ──────────────────────────────────────────────────
+  build_on_device:
+    name: Build on device (self-hosted c3x)
+    if: ${{ github.event_name == 'push' || inputs.runner == 'c3x' }}
+    runs-on: [self-hosted, c3x]
+    permissions:
+      contents: write
+
+    steps:
+      - name: Determine source branch
+        id: src
+        run: |
+          BRANCH="${{ inputs.source_branch }}"
+          [ -z "$BRANCH" ] && BRANCH="${{ github.ref_name }}"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Configure git
+        run: |
+          git config --global user.name  "$GIT_NAME"
+          git config --global user.email "$GIT_EMAIL"
+          git config --global http.postBuffer 104857600
+
+      - name: Sync source code on device
+        working-directory: ${{ env.BUILD_DIR_DEVICE }}
+        run: |
+          git fetch origin "${{ steps.src.outputs.branch }}"
+          git reset --hard "origin/${{ steps.src.outputs.branch }}"
+          git submodule update --init --recursive
+
+      - name: Build (scons)
+        working-directory: ${{ env.BUILD_DIR_DEVICE }}
+        run: |
+          export PYTHONPATH="$PWD"
+          python3 system/manager/build.py || scons -j$(nproc) --minimal
+
+      - name: Strip build artifacts
+        working-directory: ${{ env.BUILD_DIR_DEVICE }}
+        run: |
+          # Remove intermediate build files — keep compiled binaries (.so, panda fw)
+          find . -type f \( \
+            -name '*.a' -o \
+            -name '*.o' -o \
+            -name '*.os' -o \
+            -name '*.pyc' -o \
+            -name '*.onnx' -o \
+            -name 'moc_*' \
+          \) -delete
+
+          find . -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+
+          # Remove x86/Darwin third-party binaries — device only needs ARM64
+          find third_party/ -name '*x86*'   -exec rm -rf {} + 2>/dev/null || true
+          find third_party/ -name '*Darwin*' -exec rm -rf {} + 2>/dev/null || true
+
+          # Mark as pre-built so launch_chffrplus.sh skips build.py
+          touch prebuilt
+
+      - name: Commit and push pre-built release
+        working-directory: ${{ env.BUILD_DIR_DEVICE }}
+        env:
+          RELEASE_BRANCH: ${{ inputs.release_branch || 'khiles-prebuilt' }}
+          PAT: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+        run: |
+          REPO_URL="https://${PAT}@github.com/${{ github.repository }}.git"
+          git remote set-url origin "$REPO_URL"
+
+          git add -f .
+          git commit -m "prebuilt: $(git log -1 --pretty='%h %s' origin/${{ steps.src.outputs.branch }})"
+
+          git push --force origin "HEAD:$RELEASE_BRANCH"
+          echo "✅ Pre-built pushed to branch: $RELEASE_BRANCH"
+
+  # ── GitHub hosted runner + Docker QEMU (no hardware needed) ───────────────
+  build_qemu:
+    name: Cross-compile ARM64 with QEMU (hosted runner)
+    if: ${{ inputs.runner == 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Determine source branch
+        id: src
+        run: |
+          BRANCH="${{ inputs.source_branch }}"
+          [ -z "$BRANCH" ] && BRANCH="${{ github.ref_name }}"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.src.outputs.branch }}
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Set up QEMU for ARM64 emulation
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build inside ARM64 Docker container
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD:/workspace" \
+            -w /workspace \
+            ghcr.io/commaai/openpilot-base:latest \
+            bash -c "
+              export PYTHONPATH=/workspace
+              cd /workspace
+              scons -j\$(nproc) --minimal
+            "
+
+      - name: Strip build artifacts
+        run: |
+          find . -type f \( \
+            -name '*.a' -o -name '*.o' -o -name '*.os' -o \
+            -name '*.pyc' -o -name '*.onnx' -o -name 'moc_*' \
+          \) -delete
+          find . -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+          find third_party/ -name '*x86*'    -exec rm -rf {} + 2>/dev/null || true
+          find third_party/ -name '*Darwin*' -exec rm -rf {} + 2>/dev/null || true
+          touch prebuilt
+
+      - name: Configure git
+        run: |
+          git config user.name  "$GIT_NAME"
+          git config user.email "$GIT_EMAIL"
+
+      - name: Commit and push pre-built release
+        env:
+          RELEASE_BRANCH: ${{ inputs.release_branch || 'khiles-prebuilt' }}
+          PAT: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+        run: |
+          REPO_URL="https://${PAT}@github.com/${{ github.repository }}.git"
+          git remote set-url origin "$REPO_URL"
+
+          git add -f .
+          git commit -m "prebuilt: $(git log -1 --pretty='%h %s')"
+          git push --force origin "HEAD:$RELEASE_BRANCH"
+          echo "✅ Pre-built pushed to branch: $RELEASE_BRANCH"
