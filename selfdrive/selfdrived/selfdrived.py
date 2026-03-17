@@ -171,6 +171,12 @@ class SelfdriveD:
       self.startup_event = FrogPilotEventName.blockUser
       sentry.capture_block()
 
+    # Suppress customStartupAlert when no message is configured — otherwise a
+    # blank MID-sized box appears for 5 s every time the car goes on-road.
+    if self.startup_event == FrogPilotEventName.customStartupAlert:
+      if not self.frogpilot_toggles.startup_alert_top and not self.frogpilot_toggles.startup_alert_bottom:
+        self.startup_event = None
+
   def update_events(self, CS):
     """Compute onroadEvents from carState"""
 
