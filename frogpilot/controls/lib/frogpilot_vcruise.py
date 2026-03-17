@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from cereal import log
 from openpilot.common.constants import CV
 from openpilot.common.realtime import DT_MDL
 
@@ -66,7 +67,10 @@ class FrogPilotVCruise:
       self.slc.update_limits(sm["frogpilotCarState"].dashboardSpeedLimit, now, time_validated, v_cruise, v_ego, sm)
       self.slc.update_override(v_cruise, v_cruise_diff, v_ego, v_ego_diff, sm)
 
-      self.slc_offset = self.slc.offset
+      # Relaxed profile: use absolute speed limit (no offset) so the car
+      # drives at exactly the posted limit rather than any configured delta.
+      relaxed = sm["selfdriveState"].personality == log.LongitudinalPersonality.relaxed
+      self.slc_offset = 0 if relaxed else self.slc.offset
       self.slc_target = self.slc.target
     elif frogpilot_toggles.show_speed_limits:
       self.slc.update_limits(sm["frogpilotCarState"].dashboardSpeedLimit, now, time_validated, v_cruise, v_ego, sm)
