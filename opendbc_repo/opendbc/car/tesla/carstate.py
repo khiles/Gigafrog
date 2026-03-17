@@ -1,7 +1,7 @@
 import copy
 from cereal import custom
 from opendbc.can import CANDefine, CANParser
-from opendbc.car import Bus, structs
+from opendbc.car import Bus, create_button_events, structs
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.interfaces import CarStateBase
 from opendbc.car.tesla.teslacan import get_steer_ctrl_type
@@ -41,6 +41,9 @@ class CarState(CarStateBase):
 
     self.hands_on_level = 0
     self.das_control = None
+
+    self.distance_button = 0
+    self.dtr_dist_prev = -1
 
   def update_autopark_state(self, autopark_state: str, cruise_enabled: bool):
     autopark_now = autopark_state in ("ACTIVE", "COMPLETE", "SELFPARK_STARTED")
@@ -144,15 +147,17 @@ class CarState(CarStateBase):
     # FrogPilot variables
     fp_ret = custom.FrogPilotCarState.new_message()
 
-    # Tesla's camera+map fused speed limit (the sign shown on the dashboard in red)
-    # DAS_fusedSpeedLimit: raw values 0=UNKNOWN_SNA, 31=NONE, otherwise raw*5 in mph or kph
-    fused_limit_raw = int(cp_ap_party.vl["DAS_status"]["DAS_fusedSpeedLimit"])
-    if fused_limit_raw not in (0, 31):
-      fused_limit = fused_limit_raw * 5
+    # Speed limit: prefer vision-only (camera-detected, reacts instantly to temporary signs e.g.
+    # construction zones) and fall back to fused (camera+map). The DBC factor is 5, so the parser
+    # returns decoded values (0, 5, 10, ..., 155). 0 = UNKNOWN_SNA, 155 = NONE (raw 31 × 5).
+    vision_limit = int(cp_ap_party.vl["DAS_status"]["DAS_visionOnlySpeedLimit"])
+    fused_limit = int(cp_ap_party.vl["DAS_status"]["DAS_fusedSpeedLimit"])
+    limit = vision_limit if vision_limit not in (0, 155) else fused_limit
+    if limit not in (0, 155):
       if speed_units == "KPH":
-        fp_ret.dashboardSpeedLimit = fused_limit * CV.KPH_TO_MS
+        fp_ret.dashboardSpeedLimit = limit * CV.KPH_TO_MS
       elif speed_units == "MPH":
-        fp_ret.dashboardSpeedLimit = fused_limit * CV.MPH_TO_MS
+        fp_ret.dashboardSpeedLimit = limit * CV.MPH_TO_MS
 
     return ret, fp_ret
 
@@ -203,15 +208,20 @@ class CarState(CarStateBase):
 
     cruise_enabled = cruise_state in ("ENABLED", "STANDSTILL", "OVERRIDE", "PRE_FAULT", "PRE_CANCEL")
 
+    # Autopark detection (HW3 only — DAS_autoparkReady on chassis bus)
+    if self.CP.carFingerprint == CAR.TESLA_MODEL_S_HW3:
+      self.autopark = cp_chassis.vl["AutopilotStatus"]["DAS_autoparkReady"] == 1
+
     # Match panda safety cruise engaged logic
-    ret.cruiseState.enabled = cruise_enabled
+    ret.cruiseState.enabled = cruise_enabled and not self.autopark
     if speed_units == "KPH":
       ret.cruiseState.speed = max(cp_chassis.vl["DI_state"]["DI_digitalSpeed"] * CV.KPH_TO_MS, 1e-3)
     elif speed_units == "MPH":
       ret.cruiseState.speed = max(cp_chassis.vl["DI_state"]["DI_digitalSpeed"] * CV.MPH_TO_MS, 1e-3)
     ret.cruiseState.available = cruise_state == "STANDBY" or ret.cruiseState.enabled
     ret.cruiseState.standstill = False  # This needs to be false, since we can resume from stop without sending anything special
-    ret.standstill = cruise_state == "STANDSTILL"
+    hold_state = self.can_defines["DI_state"]["DI_vehicleHoldState"].get(int(cp_chassis.vl["DI_state"]["DI_vehicleHoldState"]), None)
+    ret.standstill = hold_state == "STANDSTILL"
     ret.accFaulted = cruise_state == "FAULT"
 
     # Gear
@@ -231,6 +241,11 @@ class CarState(CarStateBase):
     else:
       ret.seatbeltUnlatched = cp_chassis.vl["SDM1"]["SDM_bcklDrivStatus"] != 1
 
+    # Blindspot (HW3 only - AP module broadcasts AutopilotStatus on chassis bus)
+    if self.CP.carFingerprint == CAR.TESLA_MODEL_S_HW3:
+      ret.leftBlindspot = cp_chassis.vl["AutopilotStatus"]["DAS_blindSpotRearLeft"] != 0
+      ret.rightBlindspot = cp_chassis.vl["AutopilotStatus"]["DAS_blindSpotRearRight"] != 0
+
     # AEB
     ret.stockAeb = cp_ap_pt.vl["DAS_control"]["DAS_aebEvent"] == 1
 
@@ -240,13 +255,35 @@ class CarState(CarStateBase):
     # Stock Autosteer should be off (includes FSD)
     # ret.invalidLkasSetting = cp_ap_party.vl["DAS_settings"]["DAS_autosteerEnabled"] != 0
 
-    # Buttons # ToDo: add Gap adjust button
+    # Gap adjust button from steering wheel scroll (STW_ACTN_RQ.DTR_Dist_Rq)
+    prev_distance_button = self.distance_button
+    dtr_dist = int(cp_chassis.vl["STW_ACTN_RQ"]["DTR_Dist_Rq"])
+    if dtr_dist != 255 and dtr_dist != self.dtr_dist_prev:  # 255 = SNA; changed = button pressed
+      self.distance_button = 1
+      self.dtr_dist_prev = dtr_dist
+    else:
+      self.distance_button = 0
+    ret.buttonEvents = create_button_events(self.distance_button, prev_distance_button, {1: ButtonType.gapAdjustCruise})
 
     # Messages needed by carcontroller
     self.das_control = copy.copy(cp_ap_pt.vl["DAS_control"])
 
     # FrogPilot variables
     fp_ret = custom.FrogPilotCarState.new_message()
+
+    # Dashboard speed limit (HW3 only — AutopilotStatus on chassis bus).
+    # Prefer vision-only (camera-detected; reacts instantly to temporary signs e.g. construction
+    # zones) and fall back to fused (camera+map). The DBC factor is 5, so the parser returns
+    # decoded values (0, 5, 10, ..., 155). 0 = UNKNOWN_SNA, 155 = NONE (raw 31 × 5).
+    if self.CP.carFingerprint == CAR.TESLA_MODEL_S_HW3:
+      vision_limit = int(cp_chassis.vl["AutopilotStatus"]["DAS_visionOnlySpeedLimit"])
+      fused_limit = int(cp_chassis.vl["AutopilotStatus"]["DAS_fusedSpeedLimit"])
+      limit = vision_limit if vision_limit not in (0, 155) else fused_limit
+      if limit not in (0, 155):
+        if speed_units == "KPH":
+          fp_ret.dashboardSpeedLimit = limit * CV.KPH_TO_MS
+        elif speed_units == "MPH":
+          fp_ret.dashboardSpeedLimit = limit * CV.MPH_TO_MS
 
     return ret, fp_ret
 

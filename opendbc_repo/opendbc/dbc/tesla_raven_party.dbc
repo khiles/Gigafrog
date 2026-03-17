@@ -82,6 +82,15 @@ BO_ 911 IBST_private2: 8 IBST
   SG_ IBST_compatibilityIndex : 32|4@1+ (1,0) [0|15] "" ESP
   SG_ IBST_pForceBlendingPotential : 40|8@1+ (0.5,0) [0|125] "bar" ESP
 
+BO_ 1001 DAS_bodyControls: 8 DAS
+ SG_ DAS_headlightRequest : 0|2@1+ (1,0) [0|3] "" APS
+ SG_ DAS_hazardLightRequest : 2|2@1+ (1,0) [0|3] "" APS
+ SG_ DAS_wiperSpeed : 4|4@1+ (1,0) [0|15] "" APS
+ SG_ DAS_turnIndicatorRequest : 8|2@1+ (1,0) [0|3] "" APS
+ SG_ DAS_highLowBeamDecision : 10|2@1+ (1,0) [0|3] "" APS
+ SG_ DAS_highLowBeamOffReason : 12|3@1+ (1,0) [0|4] "" APS
+ SG_ DAS_turnIndicatorRequestReason : 16|4@1+ (1,0) [0|15] "" APS
+
 BO_ 1160 DAS_steeringControl: 4 DAS
   SG_ DAS_steeringAngleRequest : 6|15@0+ (0.1,-1638.35) [-1638.35|1638.35] "deg" EPAS3P,APS
   SG_ DAS_steeringHapticRequest : 7|1@0+ (1,0) [0|0] "" EPAS3P,APS

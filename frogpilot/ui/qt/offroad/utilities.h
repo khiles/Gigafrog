@@ -15,7 +15,6 @@ private:
   bool forceOpenDescriptions;
 
   ButtonControl *pondButton;
-  LabelControl *liveTuneIpLabel;
 
   FrogPilotSettingsWindow *parent;
 

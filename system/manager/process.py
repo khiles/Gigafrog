@@ -292,6 +292,9 @@ def ensure_running(procs: ValuesView[ManagerProcess], started: bool, params=None
     p.check_watchdog(started)
 
   for p in running:
+    # If the process crashed (proc exists but is dead), clear it so start() will respawn it
+    if p.proc is not None and not p.proc.is_alive():
+      p.stop(block=False)
     p.start()
 
   return running

@@ -38,6 +38,8 @@ class LatControlPID(LatControl):
                                 feedforward=ff,
                                 speed=CS.vEgo,
                                 freeze_integrator=freeze_integrator)
+      # Blend output authority smoothly to zero on override, back to full on release.
+      output_torque *= self._update_driver_blend(CS)
 
       pid_log.active = True
       pid_log.p = float(self.pid.p)
