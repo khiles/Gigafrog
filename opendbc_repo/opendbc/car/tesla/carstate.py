@@ -147,15 +147,18 @@ class CarState(CarStateBase):
     # FrogPilot variables
     fp_ret = custom.FrogPilotCarState.new_message()
 
-    # Tesla's camera+map fused speed limit (the sign shown on the dashboard in red)
-    # DAS_fusedSpeedLimit: raw values 0=UNKNOWN_SNA, 31=NONE, otherwise raw*5 in mph or kph
+    # Speed limit: prefer vision-only (camera-detected, reacts instantly to temporary signs e.g.
+    # construction zones) and fall back to fused (camera+map). Both encode as raw*5 in mph or kph;
+    # 0=UNKNOWN_SNA, 31=NONE.
+    vision_limit_raw = int(cp_ap_party.vl["DAS_status"]["DAS_visionOnlySpeedLimit"])
     fused_limit_raw = int(cp_ap_party.vl["DAS_status"]["DAS_fusedSpeedLimit"])
-    if fused_limit_raw not in (0, 31):
-      fused_limit = fused_limit_raw * 5
+    limit_raw = vision_limit_raw if vision_limit_raw not in (0, 31) else fused_limit_raw
+    if limit_raw not in (0, 31):
+      limit = limit_raw * 5
       if speed_units == "KPH":
-        fp_ret.dashboardSpeedLimit = fused_limit * CV.KPH_TO_MS
+        fp_ret.dashboardSpeedLimit = limit * CV.KPH_TO_MS
       elif speed_units == "MPH":
-        fp_ret.dashboardSpeedLimit = fused_limit * CV.MPH_TO_MS
+        fp_ret.dashboardSpeedLimit = limit * CV.MPH_TO_MS
 
     return ret, fp_ret
 
@@ -269,15 +272,20 @@ class CarState(CarStateBase):
     # FrogPilot variables
     fp_ret = custom.FrogPilotCarState.new_message()
 
-    # Dashboard speed limit (HW3 only — DAS_fusedSpeedLimit in AutopilotStatus on chassis bus)
+    # Dashboard speed limit (HW3 only — AutopilotStatus on chassis bus).
+    # Prefer vision-only (camera-detected; reacts instantly to temporary signs e.g. construction
+    # zones) and fall back to fused (camera+map). Both encode as raw*5 in mph or kph;
+    # 0=UNKNOWN_SNA, 31=NONE.
     if self.CP.carFingerprint == CAR.TESLA_MODEL_S_HW3:
+      vision_limit_raw = int(cp_chassis.vl["AutopilotStatus"]["DAS_visionOnlySpeedLimit"])
       fused_limit_raw = int(cp_chassis.vl["AutopilotStatus"]["DAS_fusedSpeedLimit"])
-      if fused_limit_raw not in (0, 31):  # 0=UNKNOWN_SNA, 31=NONE
-        fused_limit = fused_limit_raw * 5
+      limit_raw = vision_limit_raw if vision_limit_raw not in (0, 31) else fused_limit_raw
+      if limit_raw not in (0, 31):
+        limit = limit_raw * 5
         if speed_units == "KPH":
-          fp_ret.dashboardSpeedLimit = fused_limit * CV.KPH_TO_MS
+          fp_ret.dashboardSpeedLimit = limit * CV.KPH_TO_MS
         elif speed_units == "MPH":
-          fp_ret.dashboardSpeedLimit = fused_limit * CV.MPH_TO_MS
+          fp_ret.dashboardSpeedLimit = limit * CV.MPH_TO_MS
 
     return ret, fp_ret
 
