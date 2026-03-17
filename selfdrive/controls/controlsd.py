@@ -150,13 +150,18 @@ class Controls:
     actuators.accel = float(min(self.LoC.update(CC.longActive, CS, long_plan.aTarget, long_plan.shouldStop, pid_accel_limits, self.frogpilot_toggles), self.frogpilot_toggles.max_desired_acceleration))
 
     # Steering PID loop and lateral MPC
-    # Four curvature-target modes, in priority order:
+    # Three curvature-target modes, in priority order:
     #  1. latActive False             → track physical angle (no snap on re-engage)
-    #  2. steeringPressed True        → track physical angle (no snap on release)
-    #  3. latActive rising edge       → 1.5 s blend from physical to OP desired
-    #  4. steeringPressed falling edge→ 1.5 s blend from physical to OP desired,
-    #                                   jerk rate halved for extra smoothness (#4)
-    #  5. steady-state                → track OP model output
+    #  2. latActive rising edge       → 1.5 s blend from physical to OP desired
+    #  3. steeringPressed falling edge→ 1.5 s blend from physical to OP desired,
+    #                                   jerk rate halved for extra smoothness
+    #  4. steady-state                → track OP model output
+    #
+    # NOTE: steeringPressed does NOT suppress OP's curvature target. If we
+    # tracked physical when steeringPressed, OP would follow the driver's
+    # current angle (often straight) and refuse to turn curved roads — the
+    # car-level cooperative override (Tesla hands_authority, torque blend) is
+    # the right place to handle driver input, not here.
     OVERRIDE_RESUME_BLEND_S = 1.5
     POST_PRESS_BLEND_S = 1.5
 
@@ -175,9 +180,6 @@ class Controls:
     jerk_scale = 1.0
     if not CC.latActive:
       # Inactive: track physical so re-engage is smooth
-      new_desired_curvature = self.curvature
-    elif CS.steeringPressed:
-      # During override: track physical curvature so release is seamless
       new_desired_curvature = self.curvature
     elif self._resume_blend_t < OVERRIDE_RESUME_BLEND_S:
       # latActive rising edge blend
