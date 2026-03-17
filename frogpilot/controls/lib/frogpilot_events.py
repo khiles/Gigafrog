@@ -38,7 +38,7 @@ class FrogPilotEvents:
 
   def update(self, long_control_active, v_cruise, sm, frogpilot_toggles):
     current_alert = sm["selfdriveState"].alertType
-    current_frogpilot_alert = sm["selfdriveState"].alertType
+    current_frogpilot_alert = sm["frogpilotSelfdriveState"].alertType
 
     alerts_empty = all(sm[state].alertText1 == "" and sm[state].alertText2 == "" for state in ["selfdriveState", "frogpilotSelfdriveState"])
 
