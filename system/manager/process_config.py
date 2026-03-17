@@ -71,6 +71,9 @@ def allow_uploads(started: bool, params: Params, CP: car.CarParams, frogpilot_to
   return not frogpilot_toggles.no_uploads or frogpilot_toggles.no_onroad_uploads
 
 def run_mapd(started: bool, params: Params, CP: car.CarParams, frogpilot_toggles: SimpleNamespace) -> bool:
+  # mapd binary is incompatible with tizi (C3X) — skip it there to avoid blocking engagement
+  if HARDWARE.get_device_type() == "tizi":
+    return False
   return frogpilot_toggles.speed_limit_controller or frogpilot_toggles.speed_limit_filler
 
 def run_speed_limit_filler(started: bool, params: Params, CP: car.CarParams, frogpilot_toggles: SimpleNamespace) -> bool:
