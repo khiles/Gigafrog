@@ -68,7 +68,9 @@ class CarInterface(CarInterfaceBase):
     ret.steerControlType = structs.CarParams.SteerControlType.angle
     ret.radarUnavailable = candidate in (CAR.TESLA_MODEL_S_HW2, )
 
-    ret.alphaLongitudinalAvailable = True
+    # Longitudinal is always enabled for legacy cars (not alpha/optional).
+    # Do NOT set alphaLongitudinalAvailable — that would make the UI require the
+    # AlphaLongitudinalEnabled param, hiding the GAS/BRAKE settings menu.
     ret.openpilotLongitudinalControl = True
     ret.safetyConfigs[0].safetyParam |= TeslaSafetyFlags.LONG_CONTROL.value
 
