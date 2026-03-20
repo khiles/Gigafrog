@@ -32,6 +32,12 @@ class CarController(CarControllerBase):
         CANBUS.autopilot_powertrain = CANBUS.autopilot_party
 
       self.packers = {CANBUS.party: CANPacker(dbc_names[Bus.party]), CANBUS.powertrain: CANPacker(dbc_names[Bus.pt])}
+      # HW3 uses a separate party-bus DBC (tesla_raven_party) that has no counter/checksum
+      # for DAS_bodyControls. The BCM lives on the chassis bus, so add a chassis packer
+      # using tesla_can.dbc (which does have counter/checksum) so the indicator override
+      # message goes directly to the BCM on bus 5 rather than relying on AP forwarding.
+      if CP.carFingerprint == CAR.TESLA_MODEL_S_HW3:
+        self.packers[CANBUS.chassis] = CANPacker(dbc_names[Bus.chassis])
       self.tesla_can = TeslaCANRaven(self.packers)
       from opendbc.car.tesla.interface import CarInterface
       self.VM = VehicleModel(CarInterface.get_non_essential_params("TESLA_MODEL_S_HW3"))

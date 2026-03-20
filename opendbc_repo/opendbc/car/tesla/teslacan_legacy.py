@@ -51,7 +51,15 @@ class TeslaCANRaven:
     return self.packers[CANBUS.powertrain].make_can_msg("DAS_control", CANBUS.powertrain, values)
 
   def create_body_controls(self, counter, turn_indicator, turn_reason):
-    # Send on party bus (0); panda relay forwards to chassis bus automatically.
+    # HW3 (Model S/X HW3) carries the BCM on the chassis bus (bus 5, tesla_can.dbc),
+    # which has DAS_bodyControlsCounter and DAS_bodyControlsChecksum. Send directly there
+    # so the BCM receives the indicator override without relying on AP forwarding.
+    # HW1/HW2 send on the party bus (bus 0, also tesla_can.dbc); panda relays to chassis.
+    if CANBUS.chassis in self.packers:
+      bus = CANBUS.chassis
+    else:
+      bus = CANBUS.party
+    packer = self.packers[bus]
     values = {
       "DAS_headlightRequest": 3,         # INVALID = no DAS headlight request
       "DAS_hazardLightRequest": 3,       # SNA = no DAS hazard request
@@ -61,9 +69,9 @@ class TeslaCANRaven:
       "DAS_highLowBeamDecision": 3,      # SNA = no DAS beam request
       "DAS_bodyControlsCounter": counter,
     }
-    data = self.packers[CANBUS.party].make_can_msg("DAS_bodyControls", CANBUS.party, values)[1]
+    data = packer.make_can_msg("DAS_bodyControls", bus, values)[1]
     values["DAS_bodyControlsChecksum"] = self.checksum(0x3E9, data[:7])
-    return self.packers[CANBUS.party].make_can_msg("DAS_bodyControls", CANBUS.party, values)
+    return packer.make_can_msg("DAS_bodyControls", bus, values)
 
   def create_steering_allowed(self, counter):
     values = {
