@@ -1,5 +1,8 @@
 <div align="center" style="text-align: center;">
 
+![](https://i.ibb.co/V0FPz2VD/Chat-GPT-Image-Mar-19-2026-09-33-16-PM.png)
+
+
 <h1>openpilot</h1>
 
 <p>
