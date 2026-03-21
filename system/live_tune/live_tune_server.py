@@ -19,13 +19,11 @@ Parameter write path
 
 import argparse
 import asyncio
-import io
 import json
 import logging
 from pathlib import Path
 from typing import Any
 
-import av
 from aiohttp import web, WSMsgType
 
 from cereal import messaging
@@ -33,13 +31,6 @@ from openpilot.common.params import Params
 
 PORT = 8765
 CEREAL_SERVICES = ['liveTorqueParameters', 'liveParameters', 'carState', 'controlsState', 'deviceState', 'frogpilotPlan', 'frogpilotRadarState']
-
-STREAM_CAMERAS = {
-  'road':   'livestreamRoadEncodeData',
-  'wide':   'livestreamWideRoadEncodeData',
-  'driver': 'livestreamDriverEncodeData',
-}
-V4L2_BUF_FLAG_KEYFRAME = 8
 
 # ── Parameter registry ────────────────────────────────────────────────────────
 # type: 'bool'|'int'|'float'|'string'  category: tab grouping
@@ -1164,73 +1155,6 @@ async def qr_handler(request: web.Request) -> web.Response:
   return web.Response(text=_QR_PAGE, content_type='text/html')
 
 
-async def stream_handler(request: web.Request) -> web.StreamResponse:
-  """MJPEG endpoint — decodes the openpilot livestream encode and pushes JPEG frames."""
-  cam = request.rel_url.query.get('cam', 'road')
-  service = STREAM_CAMERAS.get(cam, 'livestreamRoadEncodeData')
-
-  resp = web.StreamResponse(headers={
-    'Cache-Control': 'no-cache, no-store',
-    'Pragma': 'no-cache',
-  })
-  resp.content_type = 'multipart/x-mixed-replace; boundary=frame'
-  await resp.prepare(request)
-
-  loop = asyncio.get_event_loop()
-  codec = av.CodecContext.create('h264', 'r')
-  sm = messaging.SubMaster([service])
-  seen_iframe = False
-  frame_skip = 0
-
-  try:
-    while True:
-      # sm.update() is blocking — run in executor so we don't stall the event loop
-      await loop.run_in_executor(None, sm.update, 200)
-
-      if not sm.updated[service]:
-        continue
-
-      evta = sm[service]
-
-      # Wait for a keyframe so the decoder has a clean start
-      if not seen_iframe:
-        if not (evta.idx.flags & V4L2_BUF_FLAG_KEYFRAME):
-          continue
-        seen_iframe = True
-
-      # Deliver ~10 fps from the 20 Hz source to keep CPU and bandwidth reasonable
-      frame_skip += 1
-      if frame_skip % 2 != 0:
-        continue
-
-      # Match webrtc: header (SPS/PPS) + data in one packet
-      raw = bytes(evta.header) + bytes(evta.data)
-
-      def _decode_to_jpeg(data: bytes) -> bytes | None:
-        frames = codec.decode(av.packet.Packet(data))
-        if not frames:
-          return None
-        buf = io.BytesIO()
-        frames[0].to_image().save(buf, format='JPEG', quality=70)
-        return buf.getvalue()
-
-      jpeg = await loop.run_in_executor(None, _decode_to_jpeg, raw)
-      if jpeg is None:
-        continue
-
-      await resp.write(
-        b'--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ' +
-        str(len(jpeg)).encode() + b'\r\n\r\n' + jpeg + b'\r\n'
-      )
-
-  except (ConnectionResetError, asyncio.CancelledError):
-    pass
-  except Exception as exc:
-    logging.getLogger('live_tune').warning('stream_handler error: %s', exc)
-
-  return resp
-
-
 async def _on_shutdown(app: web.Application) -> None:
   for ws in list(app['websockets']):
     await ws.close()
@@ -1249,7 +1173,6 @@ def main() -> None:
   app.router.add_get('/sw.js',        sw_handler)
   app.router.add_get('/icon.svg',     icon_handler)
   app.router.add_get('/qr',           qr_handler)
-  app.router.add_get('/stream',       stream_handler)
   app.router.add_get('/ws',           websocket_handler)
   app.router.add_get('/api/params',   api_get_params)
   app.router.add_post('/api/params',  api_post_params)
