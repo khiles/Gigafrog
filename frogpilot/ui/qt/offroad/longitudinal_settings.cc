@@ -96,6 +96,7 @@ FrogPilotLongitudinalPanel::FrogPilotLongitudinalPanel(FrogPilotSettingsWindow *
     {"CurveSpeedController", tr("Curve Speed Controller"), tr("<b>Automatically slow down for upcoming curves</b> using data learned from your driving style, adapting to curves as you would."), "../../frogpilot/assets/toggle_icons/icon_speed_map.png"},
     {"CalibratedLateralAcceleration", tr("Calibrated Lateral Acceleration"), tr("<b>The learned lateral acceleration from collected driving data.</b> This sets how fast openpilot will take curves. Higher values allow faster cornering; lower values slow the vehicle for gentler turns."), ""},
     {"CalibrationProgress", tr("Calibration Progress"), tr("<b>How much curve data has been collected.</b> This is a progress meter; it is normal for the value to stay low and rarely reach 100%."), ""},
+    {"CSCDecelRate", tr("Curve Braking Decel Rate"), tr("<b>How firmly openpilot brakes before an upcoming curve.</b> Lower values start braking earlier and more gently; higher values apply braking later and more firmly."), ""},
     {"ResetCurveData", tr("Reset Curve Data"), tr("<b>Reset collected user data for \"Curve Speed Controller\".</b>"), ""},
     {"ShowCSCStatus", tr("Status Widget"), tr("<b>Show the \"Curve Speed Controller\" target speed on the driving screen.</b>"), ""},
 
@@ -142,6 +143,7 @@ FrogPilotLongitudinalPanel::FrogPilotLongitudinalPanel(FrogPilotSettingsWindow *
     {"DecelerationProfile", tr("Deceleration Profile"), tr("<b>How firmly openpilot slows down.</b> \"Eco\" favors coasting, \"Sport\" applies stronger braking."), ""},
     {"HumanAcceleration", tr("Human-Like Acceleration"), tr("<b>Acceleration that mimics human behavior</b> by easing the throttle at low speeds and adding extra power when taking off from a stop."), ""},
     {"HumanFollowing", tr("Human-Like Following"), tr("<b>Following behavior that mimics human drivers</b> by closing gaps behind faster vehicles for quicker takeoffs and dynamically adjusting the desired following distance for gentler, more efficient braking."), ""},
+    {"HumanFollowingDeadBand", tr("Speed-Match Dead Band"), tr("<b>How closely ego and lead speeds must match before follow adjustments fade out.</b> Increase to suppress more micro-corrections during steady cruise; decrease for more responsive adjustments at small speed differences."), ""},
     {"HumanLaneChanges", tr("Human-Like Lane Changes"), tr("<b>Lane-change behavior that mimics human drivers</b> by anticipating and tracking adjacent vehicles during lane changes."), ""},
     {"LeadDetectionThreshold", tr("Lead Detection Sensitivity"), tr("<b>How sensitive openpilot is to detecting vehicles.</b> Higher sensitivity allows quicker detection at longer distances but may react to non-vehicle objects; lower sensitivity is more conservative and reduces false detections."), ""},
     {"TacoTune", tr("\"Taco Bell Run\" Turn Speed Hack"), tr("<b>The turn-speed hack from comma's 2022 \"Taco Bell Run\".</b> Designed to slow down for left and right turns."), ""},
@@ -189,6 +191,7 @@ FrogPilotLongitudinalPanel::FrogPilotLongitudinalPanel(FrogPilotSettingsWindow *
     {"SLCConfirmation", tr("Confirm New Speed Limits"), tr("<b>Ask before changing to a new speed limit.</b> To accept, tap the flashing on-screen widget or press the Cruise Increase button. To deny, press the Cruise Decrease button or ignore the prompt for 30 seconds."), ""},
     {"SLCLookaheadHigher", tr("Higher Limit Lookahead Time"), tr("<b>How far ahead openpilot anticipates upcoming higher speed limits</b> from downloaded map data."), ""},
     {"SLCLookaheadLower", tr("Lower Limit Lookahead Time"), tr("<b>How far ahead openpilot anticipates upcoming lower speed limits</b> from downloaded map data."), ""},
+    {"SLCPredictiveDecelRate", tr("Predictive Braking Rate"), tr("<b>How firmly openpilot brakes when anticipating an upcoming lower speed limit.</b> Lower values begin slowing earlier and more gently; higher values apply braking later and more firmly."), ""},
     {"SetSpeedLimit", tr("Match Speed Limit on Engage"), tr("<b>When openpilot is first enabled, automatically set the max speed to the current posted limit.</b>"), ""},
     {"SLCMapboxFiller", tr("Use Mapbox as Fallback"), tr("<b>Use Mapbox speed-limit data when no other source is available.</b>"), ""},
     {"SLCPriority", tr("Speed Limit Source Priority"), tr("<b>The source order for speed limits</b> when more than one is available."), ""},
@@ -265,6 +268,8 @@ FrogPilotLongitudinalPanel::FrogPilotLongitudinalPanel(FrogPilotSettingsWindow *
       std::vector<QString> ceSignalToggleNames{tr("Not For Detected Lanes")};
       longitudinalToggle = new FrogPilotParamValueButtonControl(param, title, desc, icon, 0, 99, tr(" mph"), std::map<float, QString>(), 1.0, true, ceSignalToggles, ceSignalToggleNames, true);
 
+    } else if (param == "CSCDecelRate") {
+      longitudinalToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0.1, 2.0, tr(" m/s²"), std::map<float, QString>(), 0.1);
     } else if (param == "CurveSpeedController") {
       FrogPilotManageControl *curveControlToggle = new FrogPilotManageControl(param, title, desc, icon);
       QObject::connect(curveControlToggle, &FrogPilotManageControl::manageButtonClicked, [longitudinalLayout, curveSpeedPanel]() {
@@ -369,6 +374,8 @@ FrogPilotLongitudinalPanel::FrogPilotLongitudinalPanel(FrogPilotSettingsWindow *
       std::vector<QString> decelerationProfiles{tr("Standard"), tr("Eco"), tr("Sport")};
       ButtonParamControl *decelerationProfileToggle = new ButtonParamControl(param, title, desc, icon, decelerationProfiles);
       longitudinalToggle = decelerationProfileToggle;
+    } else if (param == "HumanFollowingDeadBand") {
+      longitudinalToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0.1, 3.0, tr(" m/s"), std::map<float, QString>(), 0.1);
     } else if (param == "LeadDetectionThreshold") {
       longitudinalToggle = new FrogPilotParamValueControl(param, title, desc, icon, 25, 50, "%");
 
@@ -615,6 +622,8 @@ FrogPilotLongitudinalPanel::FrogPilotLongitudinalPanel(FrogPilotSettingsWindow *
       longitudinalToggle = new FrogPilotButtonToggleControl(param, title, desc, icon, confirmationToggles, confirmationToggleNames);
     } else if (param == "SLCLookaheadHigher" || param == "SLCLookaheadLower") {
       longitudinalToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0, 30, tr(" seconds"));
+    } else if (param == "SLCPredictiveDecelRate") {
+      longitudinalToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0.1, 1.5, tr(" m/s²"), std::map<float, QString>(), 0.1);
     } else if (param == "SLCVisuals") {
       ButtonControl *manageSLCVisualsButton = new ButtonControl(title, tr("MANAGE"), desc);
       QObject::connect(manageSLCVisualsButton, &ButtonControl::clicked, [longitudinalLayout, speedLimitControllerVisualPanel, this]() {
@@ -691,7 +700,7 @@ FrogPilotLongitudinalPanel::FrogPilotLongitudinalPanel(FrogPilotSettingsWindow *
     });
   }
 
-  QSet<QString> forceUpdateKeys = {"HumanAcceleration", "LongitudinalTune"};
+  QSet<QString> forceUpdateKeys = {"HumanAcceleration", "HumanFollowing", "LongitudinalTune"};
   for (const QString &key : forceUpdateKeys) {
     QObject::connect(static_cast<ToggleControl*>(toggles[key]), &ToggleControl::toggleFlipped, this, &FrogPilotLongitudinalPanel::updateToggles);
   }
@@ -1016,6 +1025,10 @@ void FrogPilotLongitudinalPanel::updateToggles() {
 
     else if (key == "CustomCruise" || key == "CustomCruiseLong" || key == "SetSpeedLimit" || key == "SetSpeedOffset") {
       setVisible &= !parent->hasPCMCruise;
+    }
+
+    else if (key == "HumanFollowingDeadBand") {
+      setVisible &= params.getBool("LongitudinalTune") && params.getBool("HumanFollowing");
     }
 
     else if (key == "HumanLaneChanges") {

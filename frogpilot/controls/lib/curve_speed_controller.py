@@ -24,6 +24,8 @@ class CurveSpeedController:
     self.enable_training = False
     self.target_set = False
 
+    self.decel_rate = KINEMATIC_DECEL_RATE
+
     self.training_timer = 0
 
     self.curvature_data = self.frogpilot_planner.params.get("CurvatureData")
@@ -115,7 +117,7 @@ class CurveSpeedController:
     # as the car approaches the limit tightens naturally and braking begins
     # exactly when needed — avoiding unnecessary early slowing.
     dist_to_curve = v_ego * self.frogpilot_planner.time_to_curve
-    kinematic_target = (csc_speed ** 2 + 2.0 * KINEMATIC_DECEL_RATE * dist_to_curve) ** 0.5
+    kinematic_target = (csc_speed ** 2 + 2.0 * self.decel_rate * dist_to_curve) ** 0.5
 
     self.target_set = True
     self.target = np.clip(kinematic_target, CRUISING_SPEED, v_ego)

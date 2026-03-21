@@ -444,6 +444,7 @@ class FrogPilotVariables:
     toggle.cem_status = self.get_value("ShowCEMStatus", condition=toggle.conditional_experimental_mode) or toggle.debug_mode
 
     toggle.curve_speed_controller = toggle.openpilot_longitudinal and self.get_value("CurveSpeedController")
+    toggle.csc_decel_rate = self.get_value("CSCDecelRate", cast=float, condition=toggle.curve_speed_controller, min=0.1, max=2.0)
     toggle.csc_status = self.get_value("ShowCSCStatus", condition=toggle.curve_speed_controller) or toggle.debug_mode
 
     custom_alerts = self.get_value("CustomAlerts")
@@ -621,6 +622,7 @@ class FrogPilotVariables:
     toggle.deceleration_profile = self.get_value("DecelerationProfile", cast=float, condition=longitudinal_tuning)
     toggle.human_acceleration = self.get_value("HumanAcceleration", condition=longitudinal_tuning)
     toggle.human_following = self.get_value("HumanFollowing", condition=longitudinal_tuning)
+    toggle.human_following_dead_band = self.get_value("HumanFollowingDeadBand", cast=float, condition=toggle.human_following, min=0.1, max=3.0)
     toggle.human_lane_changes = has_radar and self.get_value("HumanLaneChanges", condition=longitudinal_tuning)
     toggle.lead_detection_probability = self.get_value("LeadDetectionThreshold", cast=float, condition=longitudinal_tuning, conversion=0.01, min=0.25, max=0.5)
     toggle.taco_tune = self.get_value("TacoTune", condition=longitudinal_tuning)
@@ -696,6 +698,7 @@ class FrogPilotVariables:
     toggle.speed_limit_controller = toggle.openpilot_longitudinal and self.get_value("SpeedLimitController")
     toggle.map_speed_lookahead_higher = self.get_value("SLCLookaheadHigher", cast=float, condition=toggle.speed_limit_controller)
     toggle.map_speed_lookahead_lower = self.get_value("SLCLookaheadLower", cast=float, condition=toggle.speed_limit_controller)
+    toggle.slc_predictive_decel_rate = self.get_value("SLCPredictiveDecelRate", cast=float, condition=toggle.speed_limit_controller, min=0.1, max=1.5)
     toggle.set_speed_limit = self.get_value("SetSpeedLimit", condition=toggle.speed_limit_controller)
     toggle.show_speed_limit_offset = self.get_value("ShowSLCOffset", condition=toggle.speed_limit_controller) or toggle.debug_mode
     slc_fallback_method = self.get_value("SLCFallback", cast=float, condition=toggle.speed_limit_controller)

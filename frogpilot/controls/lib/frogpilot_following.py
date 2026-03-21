@@ -75,17 +75,18 @@ class FrogPilotFollowing:
 
     if long_control_active and self.frogpilot_planner.tracking_lead:
       if not sm["frogpilotCarState"].trafficModeEnabled and frogpilot_toggles.human_following:
-        self.update_follow_values(self.frogpilot_planner.lead_one.dRel, v_ego, self.frogpilot_planner.lead_one.vLead)
+        self.update_follow_values(self.frogpilot_planner.lead_one.dRel, v_ego, self.frogpilot_planner.lead_one.vLead, frogpilot_toggles)
       self.desired_follow_distance = desired_follow_distance(v_ego, self.frogpilot_planner.lead_one.vLead, self.t_follow)
     else:
       self.desired_follow_distance = 0
 
-  def update_follow_values(self, lead_distance, v_ego, v_lead):
+  def update_follow_values(self, lead_distance, v_ego, v_lead, frogpilot_toggles):
     # Scale all follow adjustments by how different the speeds are.
     # Near zero relative speed the factor approaches 0 and adjustments are
     # suppressed, preventing jerk / t_follow oscillation when the speeds are
     # nearly matched at highway cruise.
-    smoothing = np.clip(abs(v_lead - v_ego) / VELOCITY_DEAD_BAND, 0.0, 1.0)
+    dead_band = frogpilot_toggles.human_following_dead_band
+    smoothing = np.clip(abs(v_lead - v_ego) / dead_band, 0.0, 1.0)
 
     # Offset by FrogAi for FrogPilot for a more natural approach to a faster lead
     if v_lead > v_ego:

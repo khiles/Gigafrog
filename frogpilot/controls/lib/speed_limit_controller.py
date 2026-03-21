@@ -329,7 +329,8 @@ class SpeedLimitController:
         # When next_distance is large the formula gives a high value that doesn't
         # restrict cruise; braking begins naturally only when needed.
         if next_distance > 0:
-          predictive_target = (self.next_speed_limit ** 2 + 2.0 * PREDICTIVE_DECEL_RATE * next_distance) ** 0.5
+          decel_rate = self.frogpilot_toggles.slc_predictive_decel_rate
+          predictive_target = (self.next_speed_limit ** 2 + 2.0 * decel_rate * next_distance) ** 0.5
           if predictive_target < self.map_speed_limit:
             self.map_speed_limit = predictive_target
         else:
