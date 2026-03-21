@@ -911,7 +911,7 @@ function updateFrogPilotPlan(fp) {
     el.style.color = active ? '#f85149' : '#8b949e';
   };
   setStatus('fp-experimentalMode', fp.experimentalMode, '\u26a0 Active', 'Off');
-  setStatus('fp-redLight', fp.redLight, '\u{1F6A5} Detected', 'Clear');
+  setStatus('fp-redLight', fp.redLight, '&#x1F6A5; Detected', 'Clear');
   setStatus('fp-forcingStop', fp.forcingStop, '\u23f9 Forcing', 'No');
   const cscEl = document.getElementById('fp-cscControlling');
   if (cscEl) { cscEl.textContent = fp.cscControlling ? '\u2713 Yes' : 'No'; cscEl.style.color = fp.cscControlling ? '#3fb950' : '#8b949e'; }
