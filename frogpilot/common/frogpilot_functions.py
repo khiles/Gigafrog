@@ -200,10 +200,14 @@ def update_maps(now, params, params_memory, manual_update=False):
 
   time.sleep(1)
 
-  msg = messaging.new_message("mapdIn")
-  msg.mapdIn.type = 0
-  msg.mapdIn.str = maps_selected
-  pm.send("mapdIn", msg)
+  def send_download_request():
+    req = messaging.new_message("mapdIn")
+    req.mapdIn.type = 0
+    req.mapdIn.str = maps_selected
+    pm.send("mapdIn", req)
+
+  send_download_request()
+  last_request_time = time.monotonic()
 
   started = False
   # Give mapd up to 30 s to acknowledge the download request; once it starts,
@@ -235,6 +239,13 @@ def update_maps(now, params, params_memory, manual_update=False):
         break
 
     now_mono = time.monotonic()
+    # Resend the download request every 5 s while waiting for mapd to acknowledge.
+    # mapd may have just started (e.g. because MapsSelected was set) and its
+    # mapdIn subscriber might not have been ready when we sent the first message.
+    if not started and (now_mono - last_request_time) >= 5:
+      send_download_request()
+      last_request_time = now_mono
+
     if not started and now_mono > start_deadline:
       print("update_maps: mapd did not start download within 30 s — giving up")
       # Only clear the user-set flag when this was a manual request; a
