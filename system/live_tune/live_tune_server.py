@@ -523,12 +523,6 @@ header h1{font-size:15px;font-weight:600}
 .tab.active{background:var(--grn2);color:#fff}
 .page{display:none;padding:10px 12px;max-width:1200px}
 .page.active{display:block}
-.cam-wrap{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px 0}
-.cam-sel{display:flex;gap:6px}
-.cam-btn{padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;background:var(--bg3);color:var(--muted);border:none;transition:all .15s}
-.cam-btn.active{background:var(--grn2);color:#fff}
-.cam-img{width:100%;max-width:900px;border-radius:10px;border:1px solid var(--brd);background:var(--bg2);aspect-ratio:16/9;object-fit:contain}
-.cam-hint{font-size:11px;color:var(--muted);text-align:center}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:10px}
 .card{background:var(--bg2);border:1px solid var(--brd);border-radius:10px;padding:12px}
 .card h2{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:9px}
@@ -609,7 +603,6 @@ select{background:var(--bg3);color:var(--txt);border:1px solid var(--brd);border
   <button class="tab" onclick="showPage('ui',this)">UI</button>
   <button class="tab" onclick="showPage('device',this)">Device</button>
   <button class="tab" onclick="showPage('mapbox',this)">Mapbox</button>
-  <button class="tab" onclick="showPage('camera',this)">&#127910; Camera</button>
 </div>
 
 <!-- ── LIVE DATA ───────────────────────────────────────────── -->
@@ -720,18 +713,6 @@ select{background:var(--bg3);color:var(--txt);border:1px solid var(--brd);border
 <div class="page" id="page-ui"></div>
 <div class="page" id="page-mapbox"></div>
 
-<div class="page" id="page-camera">
-  <div class="cam-wrap">
-    <div class="cam-sel">
-      <button class="cam-btn active" onclick="setCam('road',this)">Road</button>
-      <button class="cam-btn" onclick="setCam('wide',this)">Wide</button>
-      <button class="cam-btn" onclick="setCam('driver',this)">Driver</button>
-    </div>
-    <img id="camImg" class="cam-img" alt="Live camera stream" />
-    <p class="cam-hint">Stream is active while this tab is open. Requires an active drive.</p>
-  </div>
-</div>
-
 <script>
 // Apply saved theme immediately to avoid flash of wrong theme
 (function(){
@@ -773,24 +754,6 @@ function showPage(id, btn) {
   currentPage = id;
   const q = document.getElementById('searchInput').value;
   if (q) filterParams(q);
-  if (id === 'camera') startStream(); else stopStream();
-}
-
-// ── Camera stream ───────────────────────────────────────────────────────────
-let currentCam = 'road';
-function setCam(cam, btn) {
-  currentCam = cam;
-  document.querySelectorAll('.cam-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  if (currentPage === 'camera') startStream();
-}
-function startStream() {
-  const img = document.getElementById('camImg');
-  if (img) img.src = '/stream?cam=' + currentCam + '&_=' + Date.now();
-}
-function stopStream() {
-  const img = document.getElementById('camImg');
-  if (img) img.src = '';
 }
 
 function buildPages() {
