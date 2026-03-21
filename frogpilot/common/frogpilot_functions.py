@@ -181,8 +181,12 @@ def update_maps(now, params, params_memory, manual_update=False):
   is_sunday = now.weekday() == 6
   schedule = params.get("PreferredSchedule")
 
+  # Manual-only schedule: never auto-download, regardless of whether maps exist.
+  if schedule == 0 and not manual_update:
+    return
+
   maps_downloaded = MAPS_PATH.exists()
-  if maps_downloaded and (schedule == 0 or (schedule == 1 and not is_sunday) or (schedule == 2 and not is_first)) and not manual_update:
+  if maps_downloaded and ((schedule == 1 and not is_sunday) or (schedule == 2 and not is_first)) and not manual_update:
     return
 
   suffix = "th" if 11 <= day <= 13 else {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
@@ -202,6 +206,11 @@ def update_maps(now, params, params_memory, manual_update=False):
   pm.send("mapdIn", msg)
 
   started = False
+  # Give mapd up to 30 s to acknowledge the download request; once it starts,
+  # allow up to 60 minutes for the full download to complete.
+  start_deadline = time.monotonic() + 30
+  download_deadline = None
+
   while True:
     sm.update(1000)
 
@@ -218,10 +227,22 @@ def update_maps(now, params, params_memory, manual_update=False):
       progress = sm["mapdExtendedOut"].downloadProgress
 
       if progress.active:
-        started = True
+        if not started:
+          started = True
+          download_deadline = time.monotonic() + 3600
 
       if not progress.active and started:
         break
+
+    now_mono = time.monotonic()
+    if not started and now_mono > start_deadline:
+      print("update_maps: mapd did not start download within 30 s — giving up")
+      params_memory.remove("DownloadMaps")
+      return
+    if started and download_deadline is not None and now_mono > download_deadline:
+      print("update_maps: download exceeded 60-minute timeout — giving up")
+      params_memory.remove("DownloadMaps")
+      return
 
   params.put("LastMapsUpdate", todays_date)
   params_memory.remove("DownloadMaps")

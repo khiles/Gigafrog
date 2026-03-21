@@ -130,10 +130,10 @@ def handle_request_error(destination, download_param, error, params_memory, prog
     error_message = "Connection dropped"
   elif isinstance(error, requests.exceptions.ReadTimeout):
     error_message = "Read timed out"
-  elif isinstance(error, requests.exceptions.RequestException):
-    error_message = "Network request error. Check connection"
   elif isinstance(error, requests.exceptions.Timeout):
     error_message = "Download timed out"
+  elif isinstance(error, requests.exceptions.RequestException):
+    error_message = "Network request error. Check connection"
   else:
     error_message = "Unexpected error"
 
