@@ -32,7 +32,7 @@ from cereal import messaging
 from openpilot.common.params import Params
 
 PORT = 8765
-CEREAL_SERVICES = ['liveTorqueParameters', 'liveParameters', 'carState', 'controlsState', 'deviceState']
+CEREAL_SERVICES = ['liveTorqueParameters', 'liveParameters', 'carState', 'controlsState', 'deviceState', 'frogpilotPlan', 'frogpilotRadarState']
 
 STREAM_CAMERAS = {
   'road':   'livestreamRoadEncodeData',
@@ -84,8 +84,10 @@ PARAMS: dict[str, dict] = {
   'AccelerationProfile':       _p('Acceleration Profile',           'longitudinal', I, 'Throttle aggressiveness profile',                    2,   min=0, max=3, options={0:'Normal',1:'Eco',2:'Sport',3:'Sport+'}),
   'DecelerationProfile':       _p('Deceleration Profile',          'longitudinal', I, 'Braking aggressiveness profile',                     1,   min=0, max=2, options={0:'Normal',1:'Eco',2:'Sport'}),
   'CurveSpeedController':      _p('Curve Speed Controller',         'longitudinal', B, 'Automatically slow down for curves',                 False),
+  'CSCDecelRate':              _p('Curve Braking Decel Rate (m/s²)','longitudinal', F, 'How firmly openpilot brakes before an upcoming curve — lower is earlier/gentler, higher is later/firmer', 1.0, min=0.1, max=2.0, step=0.1),
   'HumanAcceleration':         _p('Human-Like Acceleration',        'longitudinal', B, 'Smoother, more natural acceleration profiles',        False),
   'HumanFollowing':            _p('Human-Like Following',           'longitudinal', B, 'Smoother following distance adjustments',             False),
+  'HumanFollowingDeadBand':    _p('Speed-Match Dead Band (m/s)',    'longitudinal', F, 'Speed difference threshold before follow adjustments fade — increase to reduce micro-corrections', 1.0, min=0.1, max=3.0, step=0.1),
   'CustomCruise':              _p('Cruise Increment (mph)',         'longitudinal', F, 'Cruise speed button increment',                      1.0, min=0.5, max=5.0, step=0.5),
   'CustomCruiseLong':          _p('Cruise Long-Press Inc. (mph)',   'longitudinal', F, 'Cruise speed long-press increment',                  5.0, min=1.0, max=15.0, step=1.0),
   'IncreasedStoppedDistance':  _p('Extra Stopped Distance (m)',     'longitudinal', F, 'Extra stopping distance behind lead vehicle',         0.0, min=0.0, max=10.0, step=0.5),
@@ -120,6 +122,7 @@ PARAMS: dict[str, dict] = {
   'SetSpeedLimit':             _p('Match Speed Limit on Engage',    'slc', B, 'Set max speed to current posted limit when openpilot engages', False),
   'SLCLookaheadHigher':        _p('Higher Limit Lookahead (s)',     'slc', I, 'How far ahead to anticipate a higher speed limit',          0,   min=0, max=30),
   'SLCLookaheadLower':         _p('Lower Limit Lookahead (s)',      'slc', I, 'How far ahead to anticipate a lower speed limit',           0,   min=0, max=30),
+  'SLCPredictiveDecelRate':    _p('Predictive Braking Rate (m/s²)', 'slc', F, 'How firmly openpilot brakes when anticipating a lower speed limit — lower is earlier/gentler, higher is later/firmer', 0.6, min=0.1, max=1.5, step=0.1),
   'SetSpeedOffset':            _p('Speed Offset (mph)',             'slc', F, 'Offset applied to the set speed',                          0.0, min=-30.0, max=30.0, step=1.0),
   'UseVienna':                 _p('Use Vienna Signs (EU)',           'slc', B, 'Use Vienna (EU) signs instead of MUTCD (US)',               False),
   'SLCMapboxFiller':           _p('Mapbox Speed Filler',            'slc', B, 'Use Mapbox to fill in missing speed limit data',             True),
@@ -352,6 +355,40 @@ async def _ws_send_loop(ws: web.WebSocketResponse) -> None:
           'networkType':  str(ds.networkType),
           'powerDrawW':   round(float(ds.powerDrawW), 2),
         }
+
+      if sm.updated['frogpilotPlan']:
+        fp = sm['frogpilotPlan']
+        data['frogpilotPlan'] = {
+          'vCruise':            round(float(fp.vCruise) * 3.6, 1),
+          'tFollow':            round(float(fp.tFollow), 2),
+          'desiredFollowDist':  int(fp.desiredFollowDistance),
+          'experimentalMode':   bool(fp.experimentalMode),
+          'redLight':           bool(fp.redLight),
+          'forcingStop':        bool(fp.forcingStop),
+          'roadCurvature':      round(float(fp.roadCurvature), 4),
+          'cscControlling':     bool(fp.cscControllingSpeed),
+          'cscSpeed':           round(float(fp.cscSpeed) * 3.6, 1),
+          'slcSpeedLimit':      round(float(fp.slcSpeedLimit) * 3.6, 1),
+          'slcSpeedLimitSource': str(fp.slcSpeedLimitSource),
+          'slcNextSpeedLimit':  round(float(fp.slcNextSpeedLimit) * 3.6, 1),
+          'maxAcceleration':    round(float(fp.maxAcceleration), 3),
+          'minAcceleration':    round(float(fp.minAcceleration), 3),
+        }
+
+      if sm.updated['frogpilotRadarState']:
+        rs = sm['frogpilotRadarState']
+        lead = rs.leadLeft if rs.leadLeft.status else rs.leadRight
+        if lead.status:
+          data['lead'] = {
+            'dRel':       round(float(lead.dRel), 1),
+            'vRel':       round(float(lead.vRel) * 3.6, 1),
+            'vLead':      round(float(lead.vLead) * 3.6, 1),
+            'aLeadK':     round(float(lead.aLeadK), 3),
+            'modelProb':  round(float(lead.modelProb), 2),
+            'radar':      bool(lead.radar),
+          }
+        else:
+          data['lead'] = None
 
       if data:
         await ws.send_str(json.dumps({'type': 'live', 'data': data}))
@@ -605,6 +642,32 @@ select{background:var(--bg3);color:var(--txt);border:1px solid var(--brd);border
       <div class="bs" id="bsRight">Right &rarr;</div>
     </div>
   </div>
+  <div class="card">
+    <h2>FrogPilot Plan</h2>
+    <div class="row"><span class="lbl">Cruise Target</span><span class="val" id="fp-vCruise">&mdash;</span></div>
+    <div class="row"><span class="lbl">Follow Time</span><span class="val" id="fp-tFollow">&mdash;</span></div>
+    <div class="row"><span class="lbl">Follow Distance</span><span class="val" id="fp-desiredFollowDist">&mdash;</span></div>
+    <div class="row"><span class="lbl">Max Accel</span><span class="val" id="fp-maxAcceleration">&mdash;</span></div>
+    <div class="row"><span class="lbl">Min Accel</span><span class="val" id="fp-minAcceleration">&mdash;</span></div>
+    <div class="row"><span class="lbl">Road Curvature</span><span class="val" id="fp-roadCurvature">&mdash;</span></div>
+    <div class="row"><span class="lbl">Experimental Mode</span><span class="val" id="fp-experimentalMode">&mdash;</span></div>
+    <div class="row"><span class="lbl">Red Light</span><span class="val" id="fp-redLight">&mdash;</span></div>
+    <div class="row"><span class="lbl">Forcing Stop</span><span class="val" id="fp-forcingStop">&mdash;</span></div>
+    <div class="row"><span class="lbl">CSC Controlling</span><span class="val" id="fp-cscControlling">&mdash;</span></div>
+    <div class="row"><span class="lbl">CSC Target Speed</span><span class="val" id="fp-cscSpeed">&mdash;</span></div>
+    <div class="row"><span class="lbl">SLC Speed Limit</span><span class="val" id="fp-slcSpeedLimit">&mdash;</span></div>
+    <div class="row"><span class="lbl">SLC Source</span><span class="val" id="fp-slcSource">&mdash;</span></div>
+    <div class="row"><span class="lbl">SLC Next Limit</span><span class="val" id="fp-slcNextSpeedLimit">&mdash;</span></div>
+  </div>
+  <div class="card">
+    <h2>Lead Vehicle</h2>
+    <div class="row"><span class="lbl">Distance</span><span class="val" id="ld-dRel">&mdash;</span></div>
+    <div class="row"><span class="lbl">Relative Speed</span><span class="val" id="ld-vRel">&mdash;</span></div>
+    <div class="row"><span class="lbl">Lead Speed</span><span class="val" id="ld-vLead">&mdash;</span></div>
+    <div class="row"><span class="lbl">Lead Accel</span><span class="val" id="ld-aLeadK">&mdash;</span></div>
+    <div class="row"><span class="lbl">Model Confidence</span><span class="val" id="ld-modelProb">&mdash;</span></div>
+    <div class="row"><span class="lbl">Radar Confirmed</span><span class="val" id="ld-radar">&mdash;</span></div>
+  </div>
 </div>
 </div>
 
@@ -833,6 +896,8 @@ function updateLive(d) {
     el.style.color = d.controls.enabled ? '#3fb950' : '#8b949e';
   }
   if (d.device) updateDevice(d.device);
+  if ('frogpilotPlan' in d) updateFrogPilotPlan(d.frogpilotPlan);
+  if ('lead' in d) updateLead(d.lead);
 }
 
 function sv(id, v) {
@@ -867,6 +932,49 @@ function updateDevice(d) {
   if (sBar) { sBar.style.width = (100-d.freeSpacePct)+'%'; sBar.className = 'bar'+(d.freeSpacePct<10?' crit':d.freeSpacePct<30?' warn':''); }
   const mBar = document.getElementById('d-memBar');
   if (mBar) { mBar.style.width = d.memUsagePct+'%'; mBar.className = 'bar'+(d.memUsagePct>90?' crit':d.memUsagePct>70?' warn':''); }
+}
+
+function updateFrogPilotPlan(fp) {
+  if (!fp) return;
+  st('fp-vCruise', fp.vCruise + ' km/h');
+  st('fp-tFollow', fp.tFollow + ' s');
+  st('fp-desiredFollowDist', fp.desiredFollowDist + ' m');
+  st('fp-maxAcceleration', fp.maxAcceleration + ' m/s\u00b2');
+  st('fp-minAcceleration', fp.minAcceleration + ' m/s\u00b2');
+  st('fp-roadCurvature', fp.roadCurvature.toFixed(4));
+  const setStatus = (id, active, onLabel, offLabel) => {
+    const el = document.getElementById(id); if (!el) return;
+    el.textContent = active ? onLabel : offLabel;
+    el.style.color = active ? '#f85149' : '#8b949e';
+  };
+  setStatus('fp-experimentalMode', fp.experimentalMode, '\u26a0 Active', 'Off');
+  setStatus('fp-redLight', fp.redLight, '\u{1F6A5} Detected', 'Clear');
+  setStatus('fp-forcingStop', fp.forcingStop, '\u23f9 Forcing', 'No');
+  const cscEl = document.getElementById('fp-cscControlling');
+  if (cscEl) { cscEl.textContent = fp.cscControlling ? '\u2713 Yes' : 'No'; cscEl.style.color = fp.cscControlling ? '#3fb950' : '#8b949e'; }
+  st('fp-cscSpeed', fp.cscControlling ? fp.cscSpeed + ' km/h' : '\u2014');
+  st('fp-slcSpeedLimit', fp.slcSpeedLimit > 0 ? fp.slcSpeedLimit + ' km/h' : '\u2014');
+  const srcMap = {'': '\u2014', 'nav': 'Nav', 'map': 'Map', 'mapbox': 'Mapbox', 'car': 'Car'};
+  st('fp-slcSource', srcMap[fp.slcSpeedLimitSource] || fp.slcSpeedLimitSource || '\u2014');
+  st('fp-slcNextSpeedLimit', fp.slcNextSpeedLimit > 0 ? fp.slcNextSpeedLimit + ' km/h' : '\u2014');
+}
+
+function updateLead(lead) {
+  if (!lead) {
+    ['ld-dRel','ld-vRel','ld-vLead','ld-aLeadK','ld-modelProb','ld-radar'].forEach(id => st(id, 'No lead'));
+    return;
+  }
+  st('ld-dRel', lead.dRel + ' m');
+  const vRelEl = document.getElementById('ld-vRel');
+  if (vRelEl) {
+    vRelEl.textContent = (lead.vRel >= 0 ? '+' : '') + lead.vRel + ' km/h';
+    vRelEl.style.color = lead.vRel < -5 ? '#f85149' : lead.vRel > 5 ? '#3fb950' : '#58a6ff';
+  }
+  st('ld-vLead', lead.vLead + ' km/h');
+  st('ld-aLeadK', lead.aLeadK + ' m/s\u00b2');
+  st('ld-modelProb', (lead.modelProb * 100).toFixed(0) + '%');
+  const radEl = document.getElementById('ld-radar');
+  if (radEl) { radEl.textContent = lead.radar ? '\u2713 Yes' : 'Vision only'; radEl.style.color = lead.radar ? '#3fb950' : '#d29922'; }
 }
 
 async function loadStats() {
