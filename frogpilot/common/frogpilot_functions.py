@@ -237,11 +237,16 @@ def update_maps(now, params, params_memory, manual_update=False):
     now_mono = time.monotonic()
     if not started and now_mono > start_deadline:
       print("update_maps: mapd did not start download within 30 s — giving up")
-      params_memory.remove("DownloadMaps")
+      # Only clear the user-set flag when this was a manual request; a
+      # scheduled/boot run must not remove a DownloadMaps flag that the user
+      # may have set while this thread was running (race condition).
+      if manual_update:
+        params_memory.remove("DownloadMaps")
       return
     if started and download_deadline is not None and now_mono > download_deadline:
       print("update_maps: download exceeded 60-minute timeout — giving up")
-      params_memory.remove("DownloadMaps")
+      if manual_update:
+        params_memory.remove("DownloadMaps")
       return
 
   params.put("LastMapsUpdate", todays_date)
