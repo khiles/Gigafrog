@@ -13,6 +13,13 @@ from openpilot.frogpilot.common.frogpilot_utilities import calculate_bearing_off
 
 FREE_MAPBOX_REQUESTS = 100_000
 
+# Comfortable deceleration rate (m/s²) used to compute the predictive approach
+# speed when the car is heading into a lower speed-limit zone.  The kinematic
+# formula  v = sqrt(v_next² + 2·a·d)  gives the ideal speed at distance d from
+# the new zone so that constant deceleration at this rate brings the car to
+# exactly v_next the moment it crosses the zone boundary.
+PREDICTIVE_DECEL_RATE = 0.6  # m/s²  (~0.06 g, very comfortable)
+
 OFFSET_MAP_IMPERIAL = [
   (0, 11.2, "speed_limit_offset1"),     # 0–24 mph
   (11.2, 15.2, "speed_limit_offset2"),  # 25–34
@@ -305,17 +312,30 @@ class SpeedLimitController:
   def update_map_speed_limit(self, v_ego, sm):
     self.map_speed_limit = sm["mapdOut"].speedLimit
     self.next_speed_limit = sm["mapdOut"].nextSpeedLimit
+    next_distance = sm["mapdOut"].nextSpeedLimitDistance
 
     if self.next_speed_limit > 0:
       if self.map_speed_limit < self.next_speed_limit:
+        # Speed limit is increasing ahead — snap once within lookahead distance.
         max_lookahead = self.frogpilot_toggles.map_speed_lookahead_higher * v_ego
-      elif self.map_speed_limit > self.next_speed_limit:
-        max_lookahead = self.frogpilot_toggles.map_speed_lookahead_lower * v_ego
-      else:
-        max_lookahead = 0
+        if next_distance < max_lookahead:
+          self.map_speed_limit = self.next_speed_limit
 
-      if sm["mapdOut"].nextSpeedLimitDistance < max_lookahead:
-        self.map_speed_limit = self.next_speed_limit
+      elif self.map_speed_limit > self.next_speed_limit:
+        # Speed limit is decreasing ahead — use a kinematic deceleration profile
+        # so the car arrives exactly at the new limit at the zone boundary.
+        # v_approach = sqrt(v_next² + 2·a·d):  at distance d from the new zone,
+        # this is the speed the car should be travelling to hit v_next with a
+        # smooth constant decel of PREDICTIVE_DECEL_RATE m/s².
+        max_lookahead = self.frogpilot_toggles.map_speed_lookahead_lower * v_ego
+        if max_lookahead > 0 and next_distance > 0:
+          predictive_target = (self.next_speed_limit ** 2 + 2.0 * PREDICTIVE_DECEL_RATE * next_distance) ** 0.5
+          if predictive_target < self.map_speed_limit:
+            self.map_speed_limit = predictive_target
+        elif next_distance < max_lookahead:
+          # At or past the zone boundary (next_distance == 0) or feature
+          # disabled (max_lookahead == 0): adopt the new limit directly.
+          self.map_speed_limit = self.next_speed_limit
 
   def update_override(self, v_cruise, v_cruise_diff, v_ego, v_ego_diff, sm):
     self.override_slc = self.overridden_speed > self.target + self.offset > 0
