@@ -322,19 +322,18 @@ class SpeedLimitController:
           self.map_speed_limit = self.next_speed_limit
 
       elif self.map_speed_limit > self.next_speed_limit:
-        # Speed limit is decreasing ahead — use a kinematic deceleration profile
-        # so the car arrives exactly at the new limit at the zone boundary.
-        # v_approach = sqrt(v_next² + 2·a·d):  at distance d from the new zone,
-        # this is the speed the car should be travelling to hit v_next with a
+        # Speed limit is decreasing ahead — always apply kinematic anticipation.
+        # v_approach = sqrt(v_next² + 2·a·d): the speed the car should be at
+        # distance d before the zone boundary to arrive there at v_next via a
         # smooth constant decel of PREDICTIVE_DECEL_RATE m/s².
-        max_lookahead = self.frogpilot_toggles.map_speed_lookahead_lower * v_ego
-        if max_lookahead > 0 and next_distance > 0:
+        # When next_distance is large the formula gives a high value that doesn't
+        # restrict cruise; braking begins naturally only when needed.
+        if next_distance > 0:
           predictive_target = (self.next_speed_limit ** 2 + 2.0 * PREDICTIVE_DECEL_RATE * next_distance) ** 0.5
           if predictive_target < self.map_speed_limit:
             self.map_speed_limit = predictive_target
-        elif next_distance < max_lookahead:
-          # At or past the zone boundary (next_distance == 0) or feature
-          # disabled (max_lookahead == 0): adopt the new limit directly.
+        else:
+          # At or past zone boundary: adopt the new limit directly.
           self.map_speed_limit = self.next_speed_limit
 
   def update_override(self, v_cruise, v_cruise_diff, v_ego, v_ego_diff, sm):

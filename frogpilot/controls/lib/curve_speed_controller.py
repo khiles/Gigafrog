@@ -12,6 +12,11 @@ PERCENTILE = 90
 ROUNDING_PRECISION = 3
 STEP = 0.001
 
+# Comfortable deceleration rate used for kinematic curve anticipation.
+# At 1.0 m/s² (~0.10 g) the car begins slowing only when needed and
+# reaches the curve entry at the correct speed without unnecessary early braking.
+KINEMATIC_DECEL_RATE = 1.0  # m/s²
+
 class CurveSpeedController:
   def __init__(self, FrogPilotVCruise):
     self.frogpilot_planner = FrogPilotVCruise.frogpilot_planner
@@ -100,12 +105,17 @@ class CurveSpeedController:
     if self.frogpilot_planner.frogpilot_weather.weather_id != 0:
       lateral_acceleration -= self.lateral_acceleration * self.frogpilot_planner.frogpilot_weather.reduce_lateral_acceleration
 
-    if self.target_set:
-      csc_speed = (lateral_acceleration / abs(self.frogpilot_planner.road_curvature))**0.5
-      decel_rate = (v_ego - csc_speed) / self.frogpilot_planner.time_to_curve
+    # Maximum safe speed at the curve entry given current lateral acceleration limit
+    csc_speed = (lateral_acceleration / abs(self.frogpilot_planner.road_curvature)) ** 0.5
 
-      self.target -= decel_rate * DT_MDL
-      self.target = np.clip(self.target, CRUISING_SPEED, csc_speed)
-    else:
-      self.target_set = True
-      self.target = v_ego
+    # Kinematic target: the maximum speed the car can be travelling right now
+    # and still reach csc_speed at the curve entry via constant comfortable
+    # deceleration.  v = sqrt(v_entry² + 2·a·d) where d = v_ego·time_to_curve.
+    # When the curve is far away this evaluates to > v_ego (no restriction);
+    # as the car approaches the limit tightens naturally and braking begins
+    # exactly when needed — avoiding unnecessary early slowing.
+    dist_to_curve = v_ego * self.frogpilot_planner.time_to_curve
+    kinematic_target = (csc_speed ** 2 + 2.0 * KINEMATIC_DECEL_RATE * dist_to_curve) ** 0.5
+
+    self.target_set = True
+    self.target = np.clip(kinematic_target, CRUISING_SPEED, v_ego)

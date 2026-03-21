@@ -7,6 +7,11 @@ from openpilot.frogpilot.common.frogpilot_variables import CITY_SPEED_LIMIT, MAX
 
 TRAFFIC_MODE_BP = [0., CITY_SPEED_LIMIT]
 
+# Dead-band for smoothing follow adjustments near zero relative speed.
+# Below this threshold adjustments are scaled down linearly to zero,
+# preventing jerk/t_follow oscillation when ego and lead speeds are matched.
+VELOCITY_DEAD_BAND = 1.0  # m/s (~3.6 km/h)
+
 class FrogPilotFollowing:
   def __init__(self, FrogPilotPlanner):
     self.frogpilot_planner = FrogPilotPlanner
@@ -76,15 +81,24 @@ class FrogPilotFollowing:
       self.desired_follow_distance = 0
 
   def update_follow_values(self, lead_distance, v_ego, v_lead):
+    # Scale all follow adjustments by how different the speeds are.
+    # Near zero relative speed the factor approaches 0 and adjustments are
+    # suppressed, preventing jerk / t_follow oscillation when the speeds are
+    # nearly matched at highway cruise.
+    smoothing = np.clip(abs(v_lead - v_ego) / VELOCITY_DEAD_BAND, 0.0, 1.0)
+
     # Offset by FrogAi for FrogPilot for a more natural approach to a faster lead
     if v_lead > v_ego:
       distance_factor = max(lead_distance - (v_ego * self.t_follow), 1)
       accelerating_offset = np.clip(STOP_DISTANCE - v_ego, 1, distance_factor)
 
-      self.acceleration_jerk /= accelerating_offset
-      self.danger_factor -= ((v_lead - v_ego) / 100)
-      self.speed_jerk /= accelerating_offset
-      self.t_follow /= accelerating_offset
+      # Blend between no-adjustment (offset=1) and full adjustment using smoothing
+      effective_offset = 1.0 + (accelerating_offset - 1.0) * smoothing
+
+      self.acceleration_jerk /= effective_offset
+      self.danger_factor -= ((v_lead - v_ego) / 100) * smoothing
+      self.speed_jerk /= effective_offset
+      self.t_follow /= effective_offset
 
     # Offset by FrogAi for FrogPilot for a more natural approach to a slower lead
     if v_lead < v_ego:
@@ -96,6 +110,7 @@ class FrogPilotFollowing:
         braking_offset += far_lead_offset
 
       if self.frogpilot_planner.tracking_lead_filter.x >= 0.9:
-        self.danger_factor += ((v_ego - v_lead) / 100)
+        self.danger_factor += ((v_ego - v_lead) / 100) * smoothing
 
-      self.t_follow /= braking_offset
+      effective_offset = 1.0 + (braking_offset - 1.0) * smoothing
+      self.t_follow /= effective_offset
