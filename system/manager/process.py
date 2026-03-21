@@ -67,6 +67,7 @@ def join_process(process: Process, timeout: float) -> None:
 class ManagerProcess(ABC):
   daemon = False
   sigkill = False
+  optional = False  # if True, crashes never set shouldBeRunning and won't trigger processNotRunning alert
   should_run: Callable[[bool, Params, car.CarParams, SimpleNamespace], bool]
   proc: Process | None = None
   enabled = True
@@ -161,14 +162,14 @@ class ManagerProcess(ABC):
     state.name = self.name
     if self.proc:
       state.running = self.proc.is_alive()
-      state.shouldBeRunning = self.proc is not None and not self.shutting_down
+      state.shouldBeRunning = self.proc is not None and not self.shutting_down and not self.optional
       state.pid = self.proc.pid or 0
       state.exitCode = self.proc.exitcode or 0
     return state
 
 
 class NativeProcess(ManagerProcess):
-  def __init__(self, name, cwd, cmdline, should_run, enabled=True, sigkill=False, watchdog_max_dt=None):
+  def __init__(self, name, cwd, cmdline, should_run, enabled=True, sigkill=False, watchdog_max_dt=None, optional=False):
     self.name = name
     self.cwd = cwd
     self.cmdline = cmdline
@@ -176,6 +177,7 @@ class NativeProcess(ManagerProcess):
     self.enabled = enabled
     self.sigkill = sigkill
     self.watchdog_max_dt = watchdog_max_dt
+    self.optional = optional
     self.launcher = nativelauncher
 
   def prepare(self) -> None:

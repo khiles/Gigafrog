@@ -71,9 +71,6 @@ def allow_uploads(started: bool, params: Params, CP: car.CarParams, frogpilot_to
   return not frogpilot_toggles.no_uploads or frogpilot_toggles.no_onroad_uploads
 
 def run_mapd(started: bool, params: Params, CP: car.CarParams, frogpilot_toggles: SimpleNamespace) -> bool:
-  # mapd binary is incompatible with tizi (C3X) — skip it there to avoid blocking engagement
-  if HARDWARE.get_device_type() == "tizi":
-    return False
   # Also run when maps are selected so the user can download map data even
   # if the speed limit controller happens to be disabled at the time.
   return frogpilot_toggles.speed_limit_controller or frogpilot_toggles.speed_limit_filler or bool(params.get("MapsSelected"))
@@ -143,7 +140,7 @@ procs += [
   PythonProcess("live_tune_server", "system.live_tune.live_tune_server", only_offroad),
   PythonProcess("device_syncd", "frogpilot.system.device_syncd", always_run),
   PythonProcess("frogpilot_process", "frogpilot.frogpilot_process", always_run),
-  NativeProcess("mapd", "frogpilot/navigation", ["./mapd"], run_mapd),
+  NativeProcess("mapd", "frogpilot/navigation", ["./mapd"], run_mapd, optional=True),
   PythonProcess("speed_limit_filler", "frogpilot.system.speed_limit_filler", run_speed_limit_filler),
 ]
 
