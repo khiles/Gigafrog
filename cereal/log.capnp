@@ -493,6 +493,7 @@ struct DeviceState @0xa4d8b5af2aa492eb {
   cpuTempC @26 :List(Float32);
   gpuTempC @27 :List(Float32);
   dspTempC @49 :Float32;
+  gnssTempC @50 :Float32;
   memoryTempC @28 :Float32;
   modemTempC @36 :List(Float32);
   pmicTempC @39 :List(Float32);

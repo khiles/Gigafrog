@@ -210,8 +210,6 @@ class Tici(HardwareBase):
     return str(self.get_modem().Get(MM_MODEM, 'EquipmentIdentifier', dbus_interface=DBUS_PROPS, timeout=TIMEOUT))
 
   def get_network_info(self):
-    if self.get_device_type() == "mici":
-      return None
     try:
       modem = self.get_modem()
       info = modem.Command("AT+QNWINFO", math.ceil(TIMEOUT), dbus_interface=MM_MODEM, timeout=TIMEOUT)
@@ -321,11 +319,12 @@ class Tici(HardwareBase):
     os.system("sudo poweroff")
 
   def get_thermal_config(self):
-    intake, exhaust, case = None, None, None
+    intake, exhaust, case, gnss = None, None, None, None
     if self.get_device_type() == "mici":
       case = ThermalZone("case")
       intake = ThermalZone("intake")
       exhaust = ThermalZone("exhaust")
+      gnss = ThermalZone("gnss")
     return ThermalConfig(cpu=[ThermalZone(f"cpu{i}-silver-usr") for i in range(4)] +
                              [ThermalZone(f"cpu{i}-gold-usr") for i in range(4)],
                          gpu=[ThermalZone("gpu0-usr"), ThermalZone("gpu1-usr")],
@@ -334,7 +333,8 @@ class Tici(HardwareBase):
                          pmic=[ThermalZone("pm8998_tz"), ThermalZone("pm8005_tz")],
                          intake=intake,
                          exhaust=exhaust,
-                         case=case)
+                         case=case,
+                         gnss=gnss)
 
   def set_display_power(self, on):
     try:
