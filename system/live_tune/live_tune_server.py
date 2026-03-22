@@ -26,16 +26,23 @@ from typing import Any
 
 from aiohttp import web, WSMsgType
 
+from cereal import log as cereal_log
 from cereal import messaging
 from openpilot.common.params import Params
 
 PORT = 8765
-# carState and deviceState are excluded: both have exactly 15 msgq subscribers
-# from openpilot's own processes (loggerd + 14 others).  Subscribing to either
-# would make live_tune_server the 16th reader, triggering msgq's hard-coded
-# eviction of ALL subscribers — killing selfdrived/plannerd/calibrationd etc.
-# and causing "Communication Issue Between Processes" at engagement.
-CEREAL_SERVICES = ['liveTorqueParameters', 'liveParameters', 'controlsState', 'frogpilotPlan', 'frogpilotRadarState']
+# Only FrogPilot-specific services with very few subscribers (~4 each) are
+# subscribed via cereal.  All other live data comes from the Params store,
+# which is written by the publisher processes (torqued → LiveTorqueParameters,
+# paramsd → LiveParametersV2) as capnp binary — no cereal reader slot needed.
+#
+# Services and why they are excluded from cereal:
+#   carState        – 15 base subscribers (loggerd + 14 processes); we'd be 16th
+#   deviceState     – 13+ base subscribers; same eviction risk
+#   controlsState   – 10+ base subscribers; borderline risk
+#   liveParameters  – 9+ base subscribers (selfdrived, plannerd, controlsd, etc.)
+#   liveTorqueParameters – 6+ base subscribers; available via Params anyway
+CEREAL_SERVICES = ['frogpilotPlan', 'frogpilotRadarState']
 
 # ── Parameter registry ────────────────────────────────────────────────────────
 # type: 'bool'|'int'|'float'|'string'  category: tab grouping
@@ -285,62 +292,79 @@ def _write_param(key: str, value: Any) -> bool:
     return False
 
 
+# ── Params helpers — read live data without cereal subscriptions ──────────────
+
+def _read_torque_params_from_store(params: Params) -> dict[str, Any] | None:
+  """Read liveTorqueParameters from the Params store (written by torqued)."""
+  data = params.get('LiveTorqueParameters')
+  if not data:
+    return None
+  try:
+    t = cereal_log.Event.from_bytes(data).liveTorqueParameters
+    return {
+      'latAccelFactor': round(float(t.latAccelFactorFiltered), 4),
+      'latAccelOffset': round(float(t.latAccelOffsetFiltered), 4),
+      'friction':       round(float(t.frictionCoefficientFiltered), 4),
+      'calPerc':        int(t.calPerc),
+      'useParams':      bool(t.useParams),
+    }
+  except Exception:
+    return None
+
+
+def _read_vehicle_params_from_store(params: Params) -> dict[str, Any] | None:
+  """Read liveParameters from the Params store (written by paramsd)."""
+  data = params.get('LiveParametersV2') or params.get('LiveParameters')
+  if not data:
+    return None
+  try:
+    lp = cereal_log.Event.from_bytes(data).liveParameters
+    return {
+      'steerRatio':      round(float(lp.steerRatio), 3),
+      'stiffnessFactor': round(float(lp.stiffnessFactor), 3),
+      'angleOffsetDeg':  round(float(lp.angleOffsetAverageDeg), 3),
+      'gyroBias':        round(float(lp.gyroBias), 4),
+      'roll':            round(float(lp.roll), 4),
+    }
+  except Exception:
+    return None
+
+
 # ── Cereal poller — per-WebSocket-connection SubMaster ───────────────────────
 #
-# Design rationale:
+# Only frogpilotPlan and frogpilotRadarState are subscribed via cereal.
+# Both are FrogPilot-specific services with ~4 base subscribers each, so
+# adding one per browser connection stays safely under msgq's 15-reader limit
+# even with several concurrent tabs.
 #
-# carState and deviceState are excluded from CEREAL_SERVICES because both
-# already have exactly 15 msgq subscribers from openpilot's own processes
-# (loggerd + 14 others).  Adding live_tune_server as the 16th subscriber
-# triggers msgq's hard-coded eviction of ALL subscribers, disrupting
-# selfdrived, plannerd, calibrationd and locationd.
-#
-# The remaining 5 services (liveTorqueParameters, liveParameters,
-# controlsState, frogpilotPlan, frogpilotRadarState) have ~5–10 base
-# subscribers each, so a per-connection SubMaster is safe — even 3–4
-# concurrent browser tabs stay well under 15.
-#
-# Per-connection also solves the offroad→onroad eviction problem: a
-# persistent SubMaster created at server startup (offroad) gets its reader
-# slots evicted when onroad processes call msgq_init_publisher on transition.
-# A SubMaster created when the browser connects is created AFTER publishers
-# are already running, so it subscribes successfully with no eviction risk.
+# liveParameters and liveTorqueParameters are read from the Params store
+# (capnp binary written by paramsd and torqued) — no cereal reader slot used.
+# controlsState, carState, and deviceState are excluded entirely to avoid
+# their high subscriber counts (10–15 base subscribers each).
 
 async def _connection_cereal_poller(ws: web.WebSocketResponse) -> None:
   """Per-connection cereal reader. Runs for the lifetime of one WebSocket."""
   sm = messaging.SubMaster(CEREAL_SERVICES)
+  params = Params()
   log = logging.getLogger('live_tune')
+  params_poll_counter = 0
+
   while not ws.closed:
     try:
       sm.update(0)
       data: dict[str, Any] = {}
 
-      if sm.updated['liveTorqueParameters']:
-        t = sm['liveTorqueParameters']
-        data['torque'] = {
-          'latAccelFactor': round(float(t.latAccelFactorFiltered), 4),
-          'latAccelOffset': round(float(t.latAccelOffsetFiltered), 4),
-          'friction':       round(float(t.frictionCoefficientFiltered), 4),
-          'calPerc':        int(t.calPerc),
-          'useParams':      bool(t.useParams),
-        }
-
-      if sm.updated['liveParameters']:
-        lp = sm['liveParameters']
-        data['vehicleParams'] = {
-          'steerRatio':      round(float(lp.steerRatio), 3),
-          'stiffnessFactor': round(float(lp.stiffnessFactor), 3),
-          'angleOffsetDeg':  round(float(lp.angleOffsetAverageDeg), 3),
-          'gyroBias':        round(float(lp.gyroBias), 4),
-          'roll':            round(float(lp.roll), 4),
-        }
-
-      if sm.updated['controlsState']:
-        ctrl = sm['controlsState']
-        data['controls'] = {
-          'enabled':       bool(ctrl.enabled),
-          'lateralActive': bool(ctrl.lateralActive),
-        }
+      # Poll Params store every ~1 s (4 loops × 0.25 s) for the two services
+      # that have too many cereal subscribers to subscribe safely.
+      params_poll_counter += 1
+      if params_poll_counter >= 4:
+        params_poll_counter = 0
+        torque = _read_torque_params_from_store(params)
+        if torque is not None:
+          data['torque'] = torque
+        vehicle = _read_vehicle_params_from_store(params)
+        if vehicle is not None:
+          data['vehicleParams'] = vehicle
 
       if sm.updated['frogpilotPlan']:
         fp = sm['frogpilotPlan']
