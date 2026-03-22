@@ -22,6 +22,7 @@ import asyncio
 import json
 import logging
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 from aiohttp import web, WSMsgType
@@ -301,12 +302,27 @@ def _write_param(key: str, value: Any) -> bool:
 # loop, so reconnects never add a new subscriber slot.
 
 async def _cereal_poller(app: web.Application) -> None:
-  """Single persistent cereal reader. Created once; runs for server lifetime."""
+  """Persistent cereal reader. Recreates SubMaster when publishers restart
+  (e.g. offroad→onroad transition calls msgq_init_publisher, evicting our
+  reader slots and silencing updates indefinitely)."""
   sm = messaging.SubMaster(CEREAL_SERVICES)
   log = logging.getLogger('live_tune')
+  last_update_t = monotonic()
+  SM_STALE_TIMEOUT = 15.0  # seconds before assuming eviction and recreating
+
   while True:
     try:
       sm.update(0)
+      got_any = any(sm.updated[s] for s in CEREAL_SERVICES)
+      if got_any:
+        last_update_t = monotonic()
+      elif monotonic() - last_update_t > SM_STALE_TIMEOUT:
+        # Publishers restarted (onroad transition) and evicted our slots.
+        # Recreate so we resubscribe fresh.
+        log.debug('Cereal SubMaster stale >%.0fs — recreating', SM_STALE_TIMEOUT)
+        sm = messaging.SubMaster(CEREAL_SERVICES)
+        last_update_t = monotonic()
+
       data: dict[str, Any] = {}
 
       if sm.updated['liveTorqueParameters']:
