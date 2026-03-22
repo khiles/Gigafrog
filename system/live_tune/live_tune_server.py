@@ -22,7 +22,6 @@ import asyncio
 import json
 import logging
 from pathlib import Path
-from time import monotonic
 from typing import Any
 
 from aiohttp import web, WSMsgType
@@ -286,43 +285,34 @@ def _write_param(key: str, value: Any) -> bool:
     return False
 
 
-# ── Cereal poller — ONE SubMaster for the entire server lifetime ──────────────
+# ── Cereal poller — per-WebSocket-connection SubMaster ───────────────────────
 #
-# Previously _ws_send_loop() created a new SubMaster per browser connection.
-# openpilot's msgq hard-limits each service to NUM_READERS=15 simultaneous
-# subscribers.  When a browser reconnects (page refresh / JS back-off), the old
-# SubMaster may still be alive while the new one is being created, momentarily
-# pushing past the limit.  msgq responds by evicting *all* existing subscribers
-# — invalidating selfdrived's, controlsd's and other critical processes'
-# subscriptions, which causes the brief engage→disengage with a cascade of
-# cereal-staleness errors.
+# Design rationale:
 #
-# Fix: create exactly ONE SubMaster at server startup and keep it forever.
-# The poller broadcasts live data to every connected WebSocket from a single
-# loop, so reconnects never add a new subscriber slot.
+# carState and deviceState are excluded from CEREAL_SERVICES because both
+# already have exactly 15 msgq subscribers from openpilot's own processes
+# (loggerd + 14 others).  Adding live_tune_server as the 16th subscriber
+# triggers msgq's hard-coded eviction of ALL subscribers, disrupting
+# selfdrived, plannerd, calibrationd and locationd.
+#
+# The remaining 5 services (liveTorqueParameters, liveParameters,
+# controlsState, frogpilotPlan, frogpilotRadarState) have ~5–10 base
+# subscribers each, so a per-connection SubMaster is safe — even 3–4
+# concurrent browser tabs stay well under 15.
+#
+# Per-connection also solves the offroad→onroad eviction problem: a
+# persistent SubMaster created at server startup (offroad) gets its reader
+# slots evicted when onroad processes call msgq_init_publisher on transition.
+# A SubMaster created when the browser connects is created AFTER publishers
+# are already running, so it subscribes successfully with no eviction risk.
 
-async def _cereal_poller(app: web.Application) -> None:
-  """Persistent cereal reader. Recreates SubMaster when publishers restart
-  (e.g. offroad→onroad transition calls msgq_init_publisher, evicting our
-  reader slots and silencing updates indefinitely)."""
+async def _connection_cereal_poller(ws: web.WebSocketResponse) -> None:
+  """Per-connection cereal reader. Runs for the lifetime of one WebSocket."""
   sm = messaging.SubMaster(CEREAL_SERVICES)
   log = logging.getLogger('live_tune')
-  last_update_t = monotonic()
-  SM_STALE_TIMEOUT = 15.0  # seconds before assuming eviction and recreating
-
-  while True:
+  while not ws.closed:
     try:
       sm.update(0)
-      got_any = any(sm.updated[s] for s in CEREAL_SERVICES)
-      if got_any:
-        last_update_t = monotonic()
-      elif monotonic() - last_update_t > SM_STALE_TIMEOUT:
-        # Publishers restarted (onroad transition) and evicted our slots.
-        # Recreate so we resubscribe fresh.
-        log.debug('Cereal SubMaster stale >%.0fs — recreating', SM_STALE_TIMEOUT)
-        sm = messaging.SubMaster(CEREAL_SERVICES)
-        last_update_t = monotonic()
-
       data: dict[str, Any] = {}
 
       if sm.updated['liveTorqueParameters']:
@@ -386,28 +376,23 @@ async def _cereal_poller(app: web.Application) -> None:
         else:
           data['lead'] = None
 
-      if data and app['websockets']:
-        msg = json.dumps({'type': 'live', 'data': data})
-        for ws in list(app['websockets']):
-          if not ws.closed:
-            try:
-              await ws.send_str(msg)
-            except Exception:
-              pass
+      if data:
+        await ws.send_str(json.dumps({'type': 'live', 'data': data}))
     except Exception as exc:
       log.warning('Cereal poller error: %s', exc)
 
     await asyncio.sleep(0.25)
 
 
-async def _start_cereal_poller(app: web.Application) -> None:
-  app['cereal_task'] = asyncio.create_task(_cereal_poller(app))
-
-
 async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
   ws = web.WebSocketResponse()
   await ws.prepare(request)
   request.app['websockets'].add(ws)
+
+  # Start a cereal poller dedicated to this connection.  Creating it here
+  # (after the browser connects) means openpilot publishers are already
+  # running, so the SubMaster subscribes cleanly without eviction risk.
+  poller = asyncio.create_task(_connection_cereal_poller(ws))
 
   try:
     async for msg in ws:
@@ -435,6 +420,7 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
       elif msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
         break
   finally:
+    poller.cancel()
     request.app['websockets'].discard(ws)
   return ws
 
@@ -1169,9 +1155,6 @@ async def qr_handler(request: web.Request) -> web.Response:
 
 
 async def _on_shutdown(app: web.Application) -> None:
-  task = app.get('cereal_task')
-  if task:
-    task.cancel()
   for ws in list(app['websockets']):
     await ws.close()
 
@@ -1182,7 +1165,6 @@ def main() -> None:
 
   app = web.Application()
   app['websockets']: set[web.WebSocketResponse] = set()
-  app.on_startup.append(_start_cereal_poller)
   app.on_shutdown.append(_on_shutdown)
 
   app.router.add_get('/',             dashboard_handler)
