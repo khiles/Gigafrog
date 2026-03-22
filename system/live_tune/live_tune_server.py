@@ -280,11 +280,26 @@ def _write_param(key: str, value: Any) -> bool:
     return False
 
 
-# ── WebSocket live-data loop ──────────────────────────────────────────────────
+# ── Cereal poller — ONE SubMaster for the entire server lifetime ──────────────
+#
+# Previously _ws_send_loop() created a new SubMaster per browser connection.
+# openpilot's msgq hard-limits each service to NUM_READERS=15 simultaneous
+# subscribers.  When a browser reconnects (page refresh / JS back-off), the old
+# SubMaster may still be alive while the new one is being created, momentarily
+# pushing past the limit.  msgq responds by evicting *all* existing subscribers
+# — invalidating selfdrived's, controlsd's and other critical processes'
+# subscriptions, which causes the brief engage→disengage with a cascade of
+# cereal-staleness errors.
+#
+# Fix: create exactly ONE SubMaster at server startup and keep it forever.
+# The poller broadcasts live data to every connected WebSocket from a single
+# loop, so reconnects never add a new subscriber slot.
 
-async def _ws_send_loop(ws: web.WebSocketResponse) -> None:
+async def _cereal_poller(app: web.Application) -> None:
+  """Single persistent cereal reader. Created once; runs for server lifetime."""
   sm = messaging.SubMaster(CEREAL_SERVICES)
-  while not ws.closed:
+  log = logging.getLogger('live_tune')
+  while True:
     try:
       sm.update(0)
       data: dict[str, Any] = {}
@@ -381,12 +396,22 @@ async def _ws_send_loop(ws: web.WebSocketResponse) -> None:
         else:
           data['lead'] = None
 
-      if data:
-        await ws.send_str(json.dumps({'type': 'live', 'data': data}))
+      if data and app['websockets']:
+        msg = json.dumps({'type': 'live', 'data': data})
+        for ws in list(app['websockets']):
+          if not ws.closed:
+            try:
+              await ws.send_str(msg)
+            except Exception:
+              pass
     except Exception as exc:
-      logging.getLogger('live_tune').warning('WS send error: %s', exc)
+      log.warning('Cereal poller error: %s', exc)
 
     await asyncio.sleep(0.25)
+
+
+async def _start_cereal_poller(app: web.Application) -> None:
+  app['cereal_task'] = asyncio.create_task(_cereal_poller(app))
 
 
 async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
@@ -394,7 +419,6 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
   await ws.prepare(request)
   request.app['websockets'].add(ws)
 
-  send_task = asyncio.create_task(_ws_send_loop(ws))
   try:
     async for msg in ws:
       if msg.type == WSMsgType.TEXT:
@@ -421,7 +445,6 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
       elif msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
         break
   finally:
-    send_task.cancel()
     request.app['websockets'].discard(ws)
   return ws
 
@@ -1156,6 +1179,9 @@ async def qr_handler(request: web.Request) -> web.Response:
 
 
 async def _on_shutdown(app: web.Application) -> None:
+  task = app.get('cereal_task')
+  if task:
+    task.cancel()
   for ws in list(app['websockets']):
     await ws.close()
 
@@ -1166,6 +1192,7 @@ def main() -> None:
 
   app = web.Application()
   app['websockets']: set[web.WebSocketResponse] = set()
+  app.on_startup.append(_start_cereal_poller)
   app.on_shutdown.append(_on_shutdown)
 
   app.router.add_get('/',             dashboard_handler)
