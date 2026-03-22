@@ -30,7 +30,12 @@ from cereal import messaging
 from openpilot.common.params import Params
 
 PORT = 8765
-CEREAL_SERVICES = ['liveTorqueParameters', 'liveParameters', 'carState', 'controlsState', 'deviceState', 'frogpilotPlan', 'frogpilotRadarState']
+# carState and deviceState are excluded: both have exactly 15 msgq subscribers
+# from openpilot's own processes (loggerd + 14 others).  Subscribing to either
+# would make live_tune_server the 16th reader, triggering msgq's hard-coded
+# eviction of ALL subscribers — killing selfdrived/plannerd/calibrationd etc.
+# and causing "Communication Issue Between Processes" at engagement.
+CEREAL_SERVICES = ['liveTorqueParameters', 'liveParameters', 'controlsState', 'frogpilotPlan', 'frogpilotRadarState']
 
 # ── Parameter registry ────────────────────────────────────────────────────────
 # type: 'bool'|'int'|'float'|'string'  category: tab grouping
@@ -324,42 +329,11 @@ async def _cereal_poller(app: web.Application) -> None:
           'roll':            round(float(lp.roll), 4),
         }
 
-      if sm.updated['carState']:
-        cs = sm['carState']
-        data['carState'] = {
-          'vEgo':             round(float(cs.vEgo) * 3.6, 1),
-          'steeringAngleDeg': round(float(cs.steeringAngleDeg), 1),
-          'leftBlinker':      bool(cs.leftBlinker),
-          'rightBlinker':     bool(cs.rightBlinker),
-          'leftBlindspot':    bool(cs.leftBlindspot),
-          'rightBlindspot':   bool(cs.rightBlindspot),
-        }
-
       if sm.updated['controlsState']:
         ctrl = sm['controlsState']
         data['controls'] = {
           'enabled':       bool(ctrl.enabled),
           'lateralActive': bool(ctrl.lateralActive),
-        }
-
-      if sm.updated['deviceState']:
-        ds = sm['deviceState']
-        cpu_t = list(ds.cpuTempC)
-        gpu_t = list(ds.gpuTempC)
-        cpu_u = list(ds.cpuUsagePercent)
-        data['device'] = {
-          'cpuTempC':     round(max(cpu_t), 1) if cpu_t else 0.0,
-          'gpuTempC':     round(max(gpu_t), 1) if gpu_t else 0.0,
-          'memTempC':     round(float(ds.memoryTempC), 1),
-          'maxTempC':     round(float(ds.maxTempC), 1),
-          'thermalStatus': str(ds.thermalStatus),
-          'fanSpeedPct':  int(ds.fanSpeedPercentDesired),
-          'memUsagePct':  int(ds.memoryUsagePercent),
-          'freeSpacePct': round(float(ds.freeSpacePercent), 1),
-          'gpuUsagePct':  int(ds.gpuUsagePercent),
-          'cpuUsagePct':  round(sum(cpu_u) / len(cpu_u), 1) if cpu_u else 0.0,
-          'networkType':  str(ds.networkType),
-          'powerDrawW':   round(float(ds.powerDrawW), 2),
         }
 
       if sm.updated['frogpilotPlan']:
