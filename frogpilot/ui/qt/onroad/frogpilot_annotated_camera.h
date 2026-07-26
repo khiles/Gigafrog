@@ -30,7 +30,8 @@ public:
 
   float speed;
 
-  std::vector<QPointF> radar_tracks;
+  // .second classifies the point for colouring: 0 generic, 1 static obstacle, 2 approaching
+  std::vector<std::pair<QPointF, uint8_t>> radar_tracks;
 
   FrogPilotUIScene frogpilot_scene;
 
@@ -67,6 +68,7 @@ private:
   void paintLongitudinalPaused(QPainter &p);
   void paintPedalIcons(QPainter &p);
   void paintPendingSpeedLimit(QPainter &p);
+  void paintNudgeStatus(QPainter &p);
   void paintRadarTracks(QPainter &p);
   void paintRoadName(QPainter &p);
   void paintSpeedLimit(QPainter &p);
@@ -106,6 +108,10 @@ private:
   float cscSpeed;
   float dashboardSpeedLimit;
   float distanceConversion;
+  bool nudgeCrossingCenterLine;
+  float nudgeOffsetMeasured;
+  float nudgeOffsetTarget;
+
   float laneWidthLeft;
   float laneWidthRight;
   float mapSpeedLimit;

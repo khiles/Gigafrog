@@ -6,6 +6,10 @@ from opendbc.car.interfaces import RadarInterfaceBase
 RADAR_START_ADDR = 0x410
 RADAR_MSG_COUNT = 80  # 40 points * 2 messages each
 
+# Indexed by the raw DBC signal value, see opendbc/dbc/generator/tesla/_radar_common.py
+MOVING_STATES = ('indeterminate', 'moving', 'stopped', 'standing')
+OBJECT_CLASSES = ('unknown', 'fourWheelVehicle', 'twoWheelVehicle', 'pedestrian', 'constructionElement')
+
 
 class RadarInterface(RadarInterfaceBase):
   def __init__(self, CP):
@@ -110,6 +114,20 @@ class RadarInterface(RadarInterfaceBase):
       self.pts[i].aRel = msg_a['LongAccel']
       self.pts[i].yvRel = msg_b['LatSpeed']
       self.pts[i].measured = bool(msg_a['Meas'])
+
+      # Extended attributes. ProbExist/ProbObstacle live in RadarPointN_A, which both radars
+      # share. The RadarPointN_B classification signals are only trusted on the continental.
+      self.pts[i].extended = True
+      self.pts[i].probExist = msg_a['ProbExist']
+      self.pts[i].probObstacle = msg_a['ProbObstacle']
+      if self.continental_radar:
+        self.pts[i].movingState = MOVING_STATES[int(msg_b['MovingState'])]
+        # Class is a 3 bit signal but only 0-4 are defined, so clamp rather than index blindly
+        obj_class = int(msg_b['Class'])
+        self.pts[i].objectClass = OBJECT_CLASSES[obj_class] if obj_class < len(OBJECT_CLASSES) else 'unknown'
+        self.pts[i].length = msg_b['Length']
+        self.pts[i].dZ = msg_b['dZ']
+        self.pts[i].probNonObstacle = msg_a['ProbNonObstacle']
 
     ret.points = list(self.pts.values())
     self.updated_messages.clear()

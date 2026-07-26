@@ -384,7 +384,7 @@ void ModelRenderer::updateAdjacentLeads(const cereal::FrogPilotRadarState::Reade
 }
 
 void ModelRenderer::updateRadarTracks(const cereal::XYZTData::Reader &line) {
-  std::vector<QPointF> &radar_tracks = frogpilot_nvg->radar_tracks;
+  std::vector<std::pair<QPointF, uint8_t>> &radar_tracks = frogpilot_nvg->radar_tracks;
   radar_tracks.clear();
 
   SubMaster &fpsm = *(frogpilotUIState()->sm);
@@ -397,9 +397,22 @@ void ModelRenderer::updateRadarTracks(const cereal::XYZTData::Reader &line) {
     float d_rel = point.getDRel();
     float z = line_z[get_path_length_idx(line, d_rel)];
 
+    // Classify for colouring. movingState is authoritative where the radar reports it,
+    // so no filtering is needed here — this is a straight read of the hardware's own call.
+    uint8_t kind = 0;
+    if (point.getExtended() && point.getProbNonObstacle() < 50.0f) {
+      cereal::RadarData::RadarPoint::MovingState moving_state = point.getMovingState();
+      if (moving_state == cereal::RadarData::RadarPoint::MovingState::STANDING ||
+          moving_state == cereal::RadarData::RadarPoint::MovingState::STOPPED) {
+        kind = 1;
+      } else if (moving_state == cereal::RadarData::RadarPoint::MovingState::MOVING && point.getVRel() < -2.0f) {
+        kind = 2;
+      }
+    }
+
     QPointF calibrated_point;
     if (mapToScreen(d_rel, -point.getYRel(), z + path_offset_z, &calibrated_point)) {
-      radar_tracks.push_back(calibrated_point);
+      radar_tracks.emplace_back(calibrated_point, kind);
     }
   }
 }

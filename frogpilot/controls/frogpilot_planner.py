@@ -17,6 +17,7 @@ from openpilot.frogpilot.controls.lib.conditional_experimental_mode import Condi
 from openpilot.frogpilot.controls.lib.frogpilot_acceleration import FrogPilotAcceleration
 from openpilot.frogpilot.controls.lib.frogpilot_events import FrogPilotEvents
 from openpilot.frogpilot.controls.lib.frogpilot_following import FrogPilotFollowing
+from openpilot.frogpilot.controls.lib.frogpilot_nudge import FrogPilotNudge
 from openpilot.frogpilot.controls.lib.frogpilot_vcruise import FrogPilotVCruise
 from openpilot.frogpilot.controls.lib.weather_checker import WeatherChecker
 
@@ -29,6 +30,7 @@ class FrogPilotPlanner:
     self.frogpilot_cem = ConditionalExperimentalMode(self)
     self.frogpilot_events = FrogPilotEvents(self, error_log, ThemeManager)
     self.frogpilot_following = FrogPilotFollowing(self)
+    self.frogpilot_nudge = FrogPilotNudge(self)
     self.frogpilot_vcruise = FrogPilotVCruise(self)
     self.frogpilot_weather = WeatherChecker(self)
 
@@ -115,6 +117,9 @@ class FrogPilotPlanner:
 
     self.road_curvature_detected = (1 / abs(self.road_curvature))**0.5 < v_ego > CRUISING_SPEED and not (sm["carState"].leftBlinker or sm["carState"].rightBlinker)
 
+    # Must run after lateral_check and road_curvature, both of which it gates on
+    self.frogpilot_nudge.update(v_ego, sm, frogpilot_toggles)
+
     if not sm["carState"].standstill:
       self.tracking_lead = self.update_lead_status()
 
@@ -172,6 +177,11 @@ class FrogPilotPlanner:
 
     frogpilotPlan.maxAcceleration = float(self.frogpilot_acceleration.max_accel)
     frogpilotPlan.minAcceleration = float(self.frogpilot_acceleration.min_accel)
+
+    frogpilotPlan.nudgeCrossingCenterLine = self.frogpilot_nudge.crossing_center_line
+    frogpilotPlan.nudgeLateralAccel = float(self.frogpilot_nudge.lateral_accel)
+    frogpilotPlan.nudgeOffsetMeasured = float(self.frogpilot_nudge.offset_measured)
+    frogpilotPlan.nudgeOffsetTarget = float(self.frogpilot_nudge.offset_target)
 
     frogpilotPlan.redLight = self.frogpilot_cem.stop_light_detected
 

@@ -318,6 +318,18 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"NoUploads", {PERSISTENT, BOOL, "0", "0", 2}},
     {"NudgelessLaneChange", {PERSISTENT, BOOL, "1", "0", 0}},
     {"NumericalTemp", {PERSISTENT, BOOL, "1", "0", 3}},
+    {"ObstacleNudge", {PERSISTENT, BOOL, "0", "0", 3}},
+    {"ObstacleNudgeCrossCenterLine", {PERSISTENT, BOOL, "0", "0", 3}},
+    {"ObstacleNudgeGain", {PERSISTENT, FLOAT, "1.0", "1.0", 3}},
+    // Distance defaults are metre-valued. A single stored default is read as feet for
+    // imperial users and metres for metric users, so metre values make the imperial
+    // reading conservatively small rather than clamping to the most aggressive end.
+    {"ObstacleNudgeMaxCenterLineOvershoot", {PERSISTENT, FLOAT, "0.3", "0.3", 3}},
+    {"ObstacleNudgeMaxOffset", {PERSISTENT, FLOAT, "0.5", "0.5", 3}},
+    {"ObstacleNudgeMaxSpeed", {PERSISTENT, INT, "45", "45", 3}},
+    {"ObstacleNudgeMinClearance", {PERSISTENT, FLOAT, "1.0", "1.0", 3}},
+    {"ObstacleNudgeMinSpeed", {PERSISTENT, INT, "10", "10", 3}},
+    {"ObstacleNudgeTriggerDistance", {PERSISTENT, INT, "30", "30", 3}},
     {"Offset1", {PERSISTENT, FLOAT, "5.0", "0.0", 0}},
     {"Offset2", {PERSISTENT, FLOAT, "5.0", "0.0", 0}},
     {"Offset3", {PERSISTENT, FLOAT, "5.0", "0.0", 0}},

@@ -28,6 +28,7 @@ private:
   QSet<QString> aolKeys = {"AlwaysOnLateralHoldTime", "AlwaysOnLateralLKAS", "PauseAOLOnBrake"};
   QSet<QString> laneChangeKeys = {"LaneChangeTime", "LaneDetectionWidth", "MinimumLaneChangeSpeed", "NudgelessLaneChange", "OneLaneChange"};
   QSet<QString> lateralTuneKeys = {"NNFF", "NNFFLite", "TurnDesires"};
+  QSet<QString> obstacleNudgeKeys = {"ObstacleNudgeCrossCenterLine", "ObstacleNudgeGain", "ObstacleNudgeMaxCenterLineOvershoot", "ObstacleNudgeMaxOffset", "ObstacleNudgeMaxSpeed", "ObstacleNudgeMinClearance", "ObstacleNudgeMinSpeed", "ObstacleNudgeTriggerDistance"};
   QSet<QString> qolKeys = {"PauseLateralSpeed"};
 
   QSet<QString> parentKeys;

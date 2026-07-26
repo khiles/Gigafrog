@@ -181,6 +181,9 @@ void FrogPilotAnnotatedCameraWidget::updateState(const UIState &s, const FrogPil
   lateralPaused = frogpilotCarState.getPauseLateral();
   longitudinalPaused = frogpilotCarState.getPauseLongitudinal();
   mapSpeedLimit = frogpilotPlan.getSlcMapSpeedLimit();
+  nudgeCrossingCenterLine = frogpilotPlan.getNudgeCrossingCenterLine();
+  nudgeOffsetMeasured = frogpilotPlan.getNudgeOffsetMeasured();
+  nudgeOffsetTarget = frogpilotPlan.getNudgeOffsetTarget();
   mapboxSpeedLimit = frogpilotPlan.getSlcMapboxSpeedLimit();
   nextSpeedLimit = frogpilotPlan.getSlcNextSpeedLimit();
   redLight = frogpilotPlan.getRedLight();
@@ -299,6 +302,10 @@ void FrogPilotAnnotatedCameraWidget::paintFrogPilotWidgets(QPainter &p, UIState 
 
   if (speedLimitChanged) {
     paintPendingSpeedLimit(p);
+  }
+
+  if (frogpilot_toggles.value("obstacle_nudge").toBool()) {
+    paintNudgeStatus(p);
   }
 
   if (frogpilot_toggles.value("radar_tracks").toBool()) {
@@ -913,6 +920,68 @@ void FrogPilotAnnotatedCameraWidget::paintRainbowPath(QPainter &p, QLinearGradie
   p.restore();
 }
 
+void FrogPilotAnnotatedCameraWidget::paintNudgeStatus(QPainter &p) {
+  // Keyed off the target alone. The measured value is lane-centre error, which is nonzero
+  // whenever the model isn't perfectly centred, so gating on it would flicker constantly.
+  if (std::abs(nudgeOffsetTarget) < 0.02f) {
+    return;
+  }
+
+  p.save();
+
+  float maxOffset = std::max(frogpilot_toggles.value("obstacle_nudge_max_offset").toFloat(), 0.1f);
+  float strength = std::clamp(std::abs(nudgeOffsetTarget) / maxOffset, 0.0f, 1.0f);
+  bool movingLeft = nudgeOffsetTarget < 0;
+
+  QColor color = whiteColor();
+  if (nudgeCrossingCenterLine) {
+    // Reuse the ~1Hz pulse the blind spot path uses so crossing reads as a live warning
+    qint64 msNow = QDateTime::currentMSecsSinceEpoch();
+    float pulse = 0.5f + 0.5f * std::sin(msNow * 0.00628f);
+    color = QColor(255, 60, 60, static_cast<int>(160 + 95 * pulse));
+  } else {
+    color.setAlpha(static_cast<int>(90 + 165 * strength));
+  }
+
+  int centerX = rect().center().x();
+  int baseY = rect().bottom() - 260;
+
+  // Chevron pointing the way we're shifting
+  QPainterPath chevron;
+  int w = 34, h = 26;
+  int tipX = movingLeft ? centerX - 130 : centerX + 130;
+  int dir = movingLeft ? -1 : 1;
+  chevron.moveTo(tipX - dir * w, baseY - h);
+  chevron.lineTo(tipX, baseY);
+  chevron.lineTo(tipX - dir * w, baseY + h);
+
+  p.setPen(QPen(color, 12, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+  p.setBrush(Qt::NoBrush);
+  p.drawPath(chevron);
+
+  // Target / measured, so the servo can be watched converging while tuning the gain
+  QString unit = distanceConversion == 1.0f ? tr("m") : tr("ft");
+  QString text = QString("%1 / %2 %3")
+                     .arg(std::abs(nudgeOffsetTarget) * distanceConversion, 0, 'f', 2)
+                     .arg(std::abs(nudgeOffsetMeasured) * distanceConversion, 0, 'f', 2)
+                     .arg(unit);
+  if (nudgeCrossingCenterLine) {
+    text += "  " + tr("CROSSING");
+  }
+
+  p.setFont(InterFont(40, QFont::DemiBold));
+  QFontMetrics metrics(p.font());
+
+  QPainterPath textPath;
+  textPath.addText(centerX - metrics.horizontalAdvance(text) / 2.0, baseY + metrics.height() + 24, p.font(), text);
+
+  p.setPen(QPen(blackColor(200), 6));
+  p.setBrush(color);
+  p.drawPath(textPath);
+
+  p.restore();
+}
+
 void FrogPilotAnnotatedCameraWidget::paintRadarTracks(QPainter &p) {
   if (radar_tracks.empty()) {
     return;
@@ -926,13 +995,28 @@ void FrogPilotAnnotatedCameraWidget::paintRadarTracks(QPainter &p) {
   float track_x = p.viewport().width() - diameter;
   float track_y = p.viewport().height() - diameter;
 
-  p.setBrush(redColor());
-
-  for (const QPointF &track : radar_tracks) {
+  for (const auto &[track, kind] : radar_tracks) {
     float x = std::clamp(static_cast<float>(track.x()), 0.0f, track_x);
     float y = std::clamp(static_cast<float>(track.y()), 0.0f, track_y);
 
-    p.drawEllipse(QPointF(x + radius, y + radius), radius, radius);
+    // Amber for objects the radar calls standing/stopped, red for anything closing on us
+    if (kind == 1) {
+      p.setBrush(QColor(255, 176, 0, 255));
+      p.setPen(QPen(QColor(255, 176, 0, 160), 4));
+    } else if (kind == 2) {
+      p.setBrush(QColor(255, 60, 60, 255));
+      p.setPen(Qt::NoPen);
+    } else {
+      p.setBrush(QColor(255, 255, 255, 180));
+      p.setPen(Qt::NoPen);
+    }
+
+    QPointF center(x + radius, y + radius);
+    p.drawEllipse(center, radius, radius);
+    if (kind == 1) {
+      p.setBrush(Qt::NoBrush);
+      p.drawEllipse(center, radius * 1.6, radius * 1.6);
+    }
   }
 
   p.restore();

@@ -11,7 +11,7 @@ from openpilot.common.swaglog import cloudlog
 
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.vehicle_model import VehicleModel
-from openpilot.selfdrive.controls.lib.drive_helpers import clip_curvature
+from openpilot.selfdrive.controls.lib.drive_helpers import clip_curvature, smooth_value
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.selfdrive.controls.lib.latcontrol_pid import LatControlPID
 from openpilot.selfdrive.controls.lib.latcontrol_angle import LatControlAngle, STEER_ANGLE_SATURATION_THRESHOLD
@@ -62,6 +62,9 @@ class Controls:
     self._steer_was_pressed = False
     self._post_press_blend_t = 1.5  # start "complete"
     self._post_press_curvature = 0.0
+
+    # Obstacle nudge curvature bias, low-passed so the 20Hz plan doesn't staircase
+    self._nudge_curvature = 0.0
 
     self.pose_calibrator = PoseCalibrator()
     self.calibrated_pose: Pose | None = None
@@ -194,6 +197,21 @@ class Controls:
       jerk_scale = 0.5 + 0.5 * alpha  # ramps 0.5 → 1.0 over blend window
     else:
       new_desired_curvature = model_v2.action.desiredCurvature
+
+    # Obstacle nudge: a lateral offset away from parked cars, injected as a curvature bias.
+    # Suppressed through both blend windows — the driver has just handed control back
+    # there, and a lateral bias would fight the ramp. The planner gates on steeringPressed
+    # too; this repeats it at the injection point where it can't be missed.
+    nudge_allowed = (CC.latActive
+                     and self._resume_blend_t >= OVERRIDE_RESUME_BLEND_S
+                     and self._post_press_blend_t >= POST_PRESS_BLEND_S
+                     and not CS.steeringPressed)
+    nudge_target = 0.0
+    if nudge_allowed and self.frogpilot_toggles.obstacle_nudge:
+      nudge_target = self.sm['frogpilotPlan'].nudgeLateralAccel / max(CS.vEgo, 4.0)**2
+    self._nudge_curvature = smooth_value(nudge_target, self._nudge_curvature, 0.15, DT_CTRL)
+    new_desired_curvature += self._nudge_curvature
+
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll, jerk_scale)
     lat_delay = self.sm["liveDelay"].lateralDelay + LAT_SMOOTH_SECONDS
 

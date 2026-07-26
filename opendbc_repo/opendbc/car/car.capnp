@@ -324,6 +324,35 @@ struct RadarData @0x888ad6581cf0aacb {
 
     # some radars flag measurements VS estimates
     measured @6 :Bool;
+
+    # Extended attributes reported by some radars (currently the Tesla Continental ARS4-B).
+    # `extended` must be checked before reading any of them: their capnp defaults are NOT
+    # valid sentinels. dZ in particular is scaled (0.25,-5), so an unpopulated 0.0 is a
+    # legitimate height, not "unknown".
+    extended @7 :Bool;
+    movingState @8 :MovingState;
+    objectClass @9 :ObjectClass;
+    length @10 :Float32;           # m, longitudinal extent of the reflection
+    dZ @11 :Float32;               # m, reflection height relative to the sensor plane
+    probExist @12 :Float32;        # %
+    probObstacle @13 :Float32;     # %
+    probNonObstacle @14 :Float32;  # %
+
+    # Ordinals match the DBC VAL_ numbers so interfaces can index these directly.
+    enum MovingState {
+      indeterminate @0;
+      moving @1;
+      stopped @2;
+      standing @3;
+    }
+
+    enum ObjectClass {
+      unknown @0;
+      fourWheelVehicle @1;
+      twoWheelVehicle @2;
+      pedestrian @3;
+      constructionElement @4;
+    }
   }
 
   enum ErrorDEPRECATED {

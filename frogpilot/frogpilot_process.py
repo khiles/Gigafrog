@@ -92,7 +92,8 @@ def frogpilot_thread():
   sm = messaging.SubMaster(["carControl", "carState", "controlsState", "deviceState", "driverMonitoringState",
                             "gpsLocation", "gpsLocationExternal", "liveParameters", "managerState", "modelV2",
                             "onroadEvents", "pandaStates", "radarState", "selfdriveState", "frogpilotCarState",
-                            "frogpilotSelfdriveState", "frogpilotModelV2", "frogpilotOnroadEvents", "mapdOut"],
+                            "frogpilotRadarState", "frogpilotSelfdriveState", "frogpilotModelV2",
+                            "frogpilotOnroadEvents", "mapdOut"],
                             poll="modelV2")
 
   params = Params(return_defaults=True)
