@@ -75,7 +75,7 @@ class TestChryslerSafety(common.CarSafetyTest, common.MotorTorqueSteeringSafetyT
   def _toggle_aol(self, toggle_on):
     # DAS_3, bit 20 is ACC_AVAILABLE
     values = {"ACC_AVAILABLE": 1 if toggle_on else 0}
-    return self.packer.make_can_msg_panda("DAS_3", self.DAS_BUS, values)
+    return self.packer.make_can_msg_safety("DAS_3", self.DAS_BUS, values)
 
 
 class TestChryslerRamDTSafety(TestChryslerSafety):

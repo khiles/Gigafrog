@@ -83,7 +83,7 @@ class TestNissanSafety(common.CarSafetyTest, common.AngleSteeringSafetyTest):
   def _toggle_aol(self, toggle_on):
     # PRO_PILOT, CRUISE_ON is the main on button for X-Trail/Rogue/Altima
     values = {"CRUISE_ON": 1 if toggle_on else 0}
-    return self.packer.make_can_msg_panda("PRO_PILOT", 2, values)
+    return self.packer.make_can_msg_safety("PRO_PILOT", 2, values)
 
 
 class TestNissanSafetyAltEpsBus(TestNissanSafety):
@@ -123,7 +123,7 @@ class TestNissanLeafSafety(TestNissanSafety):
   def _toggle_aol(self, toggle_on):
     # CRUISE_THROTTLE, CRUISE_AVAILABLE is the main on button for Leaf
     values = {"CRUISE_AVAILABLE": 1 if toggle_on else 0}
-    return self.packer.make_can_msg_panda("CRUISE_THROTTLE", 0, values)
+    return self.packer.make_can_msg_safety("CRUISE_THROTTLE", 0, values)
 
 
 if __name__ == "__main__":

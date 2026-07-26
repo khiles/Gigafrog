@@ -387,7 +387,7 @@ class TestFordSafetyBase(common.CarSafetyTest):
       "BpedDrvAppl_D_Actl": 2 if brake else 1,
       "CcStat_D_Actl": 3 if toggle_on else 0,
     }
-    return self.packer.make_can_msg_panda("EngBrakeData", 0, values)
+    return self.packer.make_can_msg_safety("EngBrakeData", 0, values)
 
 
 class TestFordCANFDStockSafety(TestFordSafetyBase):

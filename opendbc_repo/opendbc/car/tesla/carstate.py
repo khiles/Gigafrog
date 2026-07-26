@@ -232,8 +232,17 @@ class CarState(CarStateBase):
     ret.doorOpen = any((self.can_defines["GTW_carState"][door].get(int(cp_chassis.vl["GTW_carState"][door]), "OPEN") == "OPEN") for door in DOORS)
 
     # Blinkers
-    ret.leftBlinker = cp_chassis.vl["GTW_carState"]["BC_indicatorLStatus"] == 1
-    ret.rightBlinker = cp_chassis.vl["GTW_carState"]["BC_indicatorRStatus"] == 1
+    if self.CP.carFingerprint == CAR.TESLA_MODEL_S_HW3:
+      # openpilot commands the indicator lamp during lane changes (DAS_bodyControls),
+      # so the lamp no longer reflects driver intent — read the stalk instead. A tap
+      # arms a lane change for the latch window (2.5s), holding the stalk keeps it
+      # armed, and the opposite direction cancels. This also prevents our own
+      # commanded lamp from re-triggering or chaining lane changes.
+      turn_lvr = cp_chassis.vl["STW_ACTN_RQ"]["TurnIndLvr_Stat"]
+      ret.leftBlinker, ret.rightBlinker = self.update_blinker_from_stalk(250, turn_lvr == 1, turn_lvr == 2)
+    else:
+      ret.leftBlinker = cp_chassis.vl["GTW_carState"]["BC_indicatorLStatus"] == 1
+      ret.rightBlinker = cp_chassis.vl["GTW_carState"]["BC_indicatorRStatus"] == 1
 
     # Seatbelt
     if self.CP.flags & TeslaLegacyParams.NO_SDM1:

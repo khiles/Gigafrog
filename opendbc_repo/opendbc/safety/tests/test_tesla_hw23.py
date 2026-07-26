@@ -9,11 +9,12 @@ from opendbc.car.vehicle_model import VehicleModel
 from opendbc.can import CANDefine
 from opendbc.safety.tests.libsafety import libsafety_py
 import opendbc.safety.tests.common as common
-from opendbc.safety.tests.common import CANPackerPanda, away_round, round_speed
+from opendbc.safety.tests.common import CANPackerSafety, away_round, round_speed
 
 MSG_DAS_steeringControl = 0x488
 MSG_APS_eacMonitor = 0x27d
 MSG_DAS_Control_HW23 = 0x2bf
+MSG_DAS_bodyControls = 0x3E9
 
 
 def round_angle(apply_angle, can_offset=0):
@@ -23,7 +24,7 @@ def round_angle(apply_angle, can_offset=0):
   return away_round(apply_angle_can + rnd_offset) * 0.1 - 1638.35
 
 
-class TeslaLegacyLateralBase(common.PandaCarSafetyTest, common.AngleSteeringSafetyTest):
+class TeslaLegacyLateralBase(common.CarSafetyTest, common.AngleSteeringSafetyTest):
   """Base class for Tesla Legacy lateral (steering) control tests"""
 
   STANDSTILL_THRESHOLD = 0.1
@@ -43,9 +44,9 @@ class TeslaLegacyLateralBase(common.PandaCarSafetyTest, common.AngleSteeringSafe
 
   cnt_epas = 0
   cnt_angle_cmd = 0
-  packer: CANPackerPanda
-  packer_chassis: CANPackerPanda
-  packer_powertrain: CANPackerPanda
+  packer: CANPackerSafety
+  packer_chassis: CANPackerSafety
+  packer_powertrain: CANPackerSafety
 
   def _get_steer_cmd_angle_max(self, speed):
     return get_max_angle_vm(max(speed, 1), self.VM, CarControllerParams)
@@ -55,9 +56,9 @@ class TeslaLegacyLateralBase(common.PandaCarSafetyTest, common.AngleSteeringSafe
     self.VM = VehicleModel(CarInterface.get_non_essential_params("TESLA_MODEL_S_HW3"))
 
     # Tesla Legacy uses tesla_can DBC
-    self.packer = CANPackerPanda("tesla_can")
-    self.packer_chassis = CANPackerPanda("tesla_can")
-    self.packer_powertrain = CANPackerPanda("tesla_powertrain")
+    self.packer = CANPackerSafety("tesla_can")
+    self.packer_chassis = CANPackerSafety("tesla_can")
+    self.packer_powertrain = CANPackerSafety("tesla_powertrain")
 
     self.steer_control_types = {'NONE': 0, 'ANGLE_CONTROL': 1, 'LANE_KEEP_ASSIST': 2, 'EMERGENCY_LANE_KEEP': 3}
 
@@ -66,7 +67,7 @@ class TeslaLegacyLateralBase(common.PandaCarSafetyTest, common.AngleSteeringSafe
     if increment_timer:
       self.safety.set_timer(self.cnt_angle_cmd * int(1e6 / self.LATERAL_FREQUENCY))
       self.__class__.cnt_angle_cmd += 1
-    return self.packer.make_can_msg_panda("DAS_steeringControl", bus, values)
+    return self.packer.make_can_msg_safety("DAS_steeringControl", bus, values)
 
   def _angle_meas_msg(self, angle: float, hands_on_level: int = 0, eac_status: int = 1, eac_error_code: int = 0):
     # Legacy uses EPAS_sysStatus message with EPAS_* signals (not EPAS3S_*)
@@ -76,27 +77,27 @@ class TeslaLegacyLateralBase(common.PandaCarSafetyTest, common.AngleSteeringSafe
       "EPAS_eacStatus": eac_status,
       "EPAS_eacErrorCode": eac_error_code
     }
-    return self.packer.make_can_msg_panda("EPAS_sysStatus", 0, values)
+    return self.packer.make_can_msg_safety("EPAS_sysStatus", 0, values)
 
   def _user_brake_msg(self, brake):
     values = {"driverBrakeStatus": 2 if brake else 1}
-    return self.packer_chassis.make_can_msg_panda("BrakeMessage", self.chassis_bus, values)
+    return self.packer_chassis.make_can_msg_safety("BrakeMessage", self.chassis_bus, values)
 
   def _speed_msg(self, speed):
     values = {"ESP_vehicleSpeed": speed * 3.6}  # Convert m/s to km/h
-    return self.packer_chassis.make_can_msg_panda("ESP_B", self.chassis_bus, values)
+    return self.packer_chassis.make_can_msg_safety("ESP_B", self.chassis_bus, values)
 
   def _vehicle_moving_msg(self, speed: float):
     values = {"DI_cruiseState": 3 if speed <= self.STANDSTILL_THRESHOLD else 2, "DI_speedUnits": 1}  # 1 = KPH
-    return self.packer_chassis.make_can_msg_panda("DI_state", self.chassis_bus, values)
+    return self.packer_chassis.make_can_msg_safety("DI_state", self.chassis_bus, values)
 
   def _user_gas_msg(self, gas):
     values = {"DI_pedalPos": gas}
-    return self.packer_chassis.make_can_msg_panda("DI_torque1", self.chassis_bus, values)
+    return self.packer_chassis.make_can_msg_safety("DI_torque1", self.chassis_bus, values)
 
   def _pcm_status_msg(self, enable):
     values = {"DI_cruiseState": 2 if enable else 0, "DI_speedUnits": 1}  # 1 = KPH
-    return self.packer_chassis.make_can_msg_panda("DI_state", self.chassis_bus, values)
+    return self.packer_chassis.make_can_msg_safety("DI_state", self.chassis_bus, values)
 
   def test_rx_hook(self):
     # Test angle command reception
@@ -235,7 +236,7 @@ class TeslaLegacyLateralBase(common.PandaCarSafetyTest, common.AngleSteeringSafe
         self.assertTrue(self._tx(self._angle_cmd_msg(0, True)))
 
 
-class TeslaLegacyLongitudinalBase(common.PandaCarSafetyTest, common.LongitudinalAccelSafetyTest):
+class TeslaLegacyLongitudinalBase(common.CarSafetyTest, common.LongitudinalAccelSafetyTest):
   """Base class for Tesla Legacy longitudinal (acceleration) control tests"""
 
   STANDSTILL_THRESHOLD = 0.1
@@ -248,23 +249,23 @@ class TeslaLegacyLongitudinalBase(common.PandaCarSafetyTest, common.Longitudinal
 
   def setUp(self):
     # Tesla Legacy uses tesla_can DBC
-    self.packer = CANPackerPanda("tesla_powertrain")
+    self.packer = CANPackerSafety("tesla_powertrain")
 
   def _vehicle_moving_msg(self, speed: float):
     values = {"DI_cruiseState": 3 if speed <= self.STANDSTILL_THRESHOLD else 2, "DI_speedUnits": 1}  # 1 = KPH
-    return self.packer.make_can_msg_panda("DI_state", 0, values)
+    return self.packer.make_can_msg_safety("DI_state", 0, values)
 
   def _user_brake_msg(self, brake):
     values = {"driverBrakeStatus": 2 if brake else 1}
-    return self.packer.make_can_msg_panda("BrakeMessage", 0, values)
+    return self.packer.make_can_msg_safety("BrakeMessage", 0, values)
 
   def _user_gas_msg(self, gas):
     values = {"DI_pedalPos": gas}
-    return self.packer.make_can_msg_panda("DI_torque1", 0, values)
+    return self.packer.make_can_msg_safety("DI_torque1", 0, values)
 
   def _pcm_status_msg(self, enable):
     values = {"DI_cruiseState": 2 if enable else 0, "DI_speedUnits": 1}  # 1 = KPH
-    return self.packer.make_can_msg_panda("DI_state", 0, values)
+    return self.packer.make_can_msg_safety("DI_state", 0, values)
 
   def _long_control_msg(self, set_speed, acc_state=0, jerk_limits=(0, 0), accel_limits=(0, 0), aeb_event=0, bus=0):
     values = {
@@ -276,7 +277,7 @@ class TeslaLegacyLongitudinalBase(common.PandaCarSafetyTest, common.Longitudinal
       "DAS_accelMin": accel_limits[0],
       "DAS_accelMax": accel_limits[1],
     }
-    return self.packer.make_can_msg_panda("DAS_control", bus, values)
+    return self.packer.make_can_msg_safety("DAS_control", bus, values)
 
   def _accel_msg(self, accel: float):
     return self._long_control_msg(10, accel_limits=(accel, max(accel, 0)))
@@ -336,9 +337,9 @@ class TestTeslaHW2Safety(TeslaLegacyLateralBase):
 
   def setUp(self):
     super().setUp()
-    self.RELAY_MALFUNCTION_ADDRS = {0: (MSG_DAS_steeringControl, MSG_APS_eacMonitor)}
+    self.RELAY_MALFUNCTION_ADDRS = {0: (MSG_DAS_steeringControl, MSG_APS_eacMonitor, MSG_DAS_bodyControls)}
     self.FWD_BLACKLISTED_ADDRS = {2: [MSG_DAS_steeringControl, MSG_APS_eacMonitor]}
-    self.TX_MSGS = [[MSG_DAS_steeringControl, 0], [MSG_APS_eacMonitor, 0]]
+    self.TX_MSGS = [[MSG_DAS_steeringControl, 0], [MSG_APS_eacMonitor, 0], [MSG_DAS_bodyControls, 0]]
 
     self.safety = libsafety_py.libsafety
     self.safety.set_safety_hooks(CarParams.SafetyModel.teslaLegacy, int(TeslaSafetyFlags.FLAG_HW2))
@@ -350,15 +351,38 @@ class TestTeslaHW3Safety(TeslaLegacyLateralBase):
 
   def setUp(self):
     super().setUp()
+    # DAS_bodyControls is TX'd on the chassis bus with check_relay=false (stock AP
+    # frames legitimately coexist there), so it must not latch relay malfunction.
     self.RELAY_MALFUNCTION_ADDRS = {0: (MSG_DAS_steeringControl, MSG_APS_eacMonitor)}
     self.FWD_BLACKLISTED_ADDRS = {2: [MSG_DAS_steeringControl, MSG_APS_eacMonitor]}
-    self.TX_MSGS = [[MSG_DAS_steeringControl, 0], [MSG_APS_eacMonitor, 0]]
+    self.TX_MSGS = [[MSG_DAS_steeringControl, 0], [MSG_APS_eacMonitor, 0], [MSG_DAS_bodyControls, 1]]
 
     self.safety = libsafety_py.libsafety
     self.safety.set_safety_hooks(CarParams.SafetyModel.teslaLegacy, int(TeslaSafetyFlags.FLAG_HW3))
     self.safety.init_tests()
 
-    self.packer = CANPackerPanda("tesla_raven_party")
+    self.packer = CANPackerSafety("tesla_raven_party")
+
+  def _body_controls_msg(self, turn_indicator):
+    values = {"DAS_turnIndicatorRequest": turn_indicator,
+              "DAS_turnIndicatorRequestReason": 6 if turn_indicator != 0 else 0}
+    return self.packer_chassis.make_can_msg_safety("DAS_bodyControls", self.chassis_bus, values)
+
+  def test_op_turn_indicator_fwd_block(self):
+    # While openpilot requests a turn indicator, the stock AP's DAS_bodyControls must
+    # not be forwarded (it would race ours and cancel the indicator mid lane change).
+    # Once the request ends, stock body controls (auto wipers/high beam) resume.
+    for turn_indicator in (1, 2):  # LEFT, RIGHT
+      self.assertTrue(self._tx(self._body_controls_msg(turn_indicator)))
+      self.assertEqual(-1, self.safety.safety_fwd_hook(2, MSG_DAS_bodyControls))
+      self.assertTrue(self._tx(self._body_controls_msg(0)))  # NONE
+      self.assertEqual(0, self.safety.safety_fwd_hook(2, MSG_DAS_bodyControls))
+
+  def test_body_controls_bus(self):
+    # HW3 sends DAS_bodyControls on the chassis bus (1) only
+    self.assertTrue(self._tx(self._body_controls_msg(0)))
+    msg_bus0 = self.packer_chassis.make_can_msg_safety("DAS_bodyControls", 0, {"DAS_turnIndicatorRequest": 0})
+    self.assertFalse(self._tx(msg_bus0))
 
 # Longitudinal control tests (external panda configurations)
 class TestTeslaHW2ExternalPandaSafety(TeslaLegacyLongitudinalBase):

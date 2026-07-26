@@ -1203,14 +1203,14 @@ class CarSafetyTest(SafetyTest):
 
 
 # OPGM variables
-class GasInterceptorSafetyTest(PandaSafetyTestBase):
+class GasInterceptorSafetyTest(SafetyTestBase):
 
   INTERCEPTOR_THRESHOLD = 0
 
   cnt_gas_cmd = 0
   cnt_user_gas = 0
 
-  packer: CANPackerPanda
+  packer: CANPackerSafety
 
   @classmethod
   def setUpClass(cls):
@@ -1224,13 +1224,13 @@ class GasInterceptorSafetyTest(PandaSafetyTestBase):
       values["GAS_COMMAND"] = gas * 255.
       values["GAS_COMMAND2"] = gas * 255.
     self.__class__.cnt_gas_cmd += 1
-    return self.packer.make_can_msg_panda("GAS_COMMAND", 0, values)
+    return self.packer.make_can_msg_safety("GAS_COMMAND", 0, values)
 
   def _interceptor_user_gas(self, gas: int):
     values = {"INTERCEPTOR_GAS": gas, "INTERCEPTOR_GAS2": gas,
               "COUNTER_PEDAL": self.__class__.cnt_user_gas}
     self.__class__.cnt_user_gas += 1
-    return self.packer.make_can_msg_panda("GAS_SENSOR", 0, values)
+    return self.packer.make_can_msg_safety("GAS_SENSOR", 0, values)
 
   # Skip non-interceptor user gas tests
   def test_prev_gas(self):

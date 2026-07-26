@@ -115,7 +115,7 @@ class TestSubaruSafetyBase(common.CarSafetyTest):
   def _toggle_aol(self, toggle_on):
     # CruiseControl, Cruise_On is the main on button
     values = {"Cruise_On": 1 if toggle_on else 0}
-    return self.packer.make_can_msg_panda("CruiseControl", self.ALT_MAIN_BUS, values)
+    return self.packer.make_can_msg_safety("CruiseControl", self.ALT_MAIN_BUS, values)
 
 
 class TestSubaruStockLongitudinalSafetyBase(TestSubaruSafetyBase):

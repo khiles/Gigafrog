@@ -97,8 +97,8 @@ class TestHyundaiCanfdBase(HyundaiButtonBase, common.CarSafetyTest, common.Drive
       "LFA_BTN": 1,
       "COUNTER": 0,
     }
-    self._rx(self.packer.make_can_msg_panda("CRUISE_BUTTONS", self.PT_BUS, values))
-    self._rx(self.packer.make_can_msg_panda("CRUISE_BUTTONS", self.PT_BUS, {**values, "LFA_BTN": 0}))
+    self._rx(self.packer.make_can_msg_safety("CRUISE_BUTTONS", self.PT_BUS, values))
+    self._rx(self.packer.make_can_msg_safety("CRUISE_BUTTONS", self.PT_BUS, {**values, "LFA_BTN": 0}))
 
     self._aol_state = toggle_on
     return None  # avoid duplicate message in harness
@@ -188,8 +188,8 @@ class TestHyundaiCanfdLFASteeringAltButtonsBase(TestHyundaiCanfdLFASteeringBase)
       "LFA_BTN": 1,
       "COUNTER": 0,
     }
-    self._rx(self.packer.make_can_msg_panda("CRUISE_BUTTONS_ALT", self.PT_BUS, values))
-    self._rx(self.packer.make_can_msg_panda("CRUISE_BUTTONS_ALT", self.PT_BUS, {**values, "LFA_BTN": 0}))
+    self._rx(self.packer.make_can_msg_safety("CRUISE_BUTTONS_ALT", self.PT_BUS, values))
+    self._rx(self.packer.make_can_msg_safety("CRUISE_BUTTONS_ALT", self.PT_BUS, {**values, "LFA_BTN": 0}))
 
     self._aol_state = toggle_on
     return None  # avoid duplicate message in harness
