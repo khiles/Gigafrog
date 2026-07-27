@@ -190,6 +190,9 @@ struct FrogPilotPlan @0xf98d843bfd7004a3 {
   nudgeOffsetTarget @36 :Float32;    # m, positive = right
   nudgeOffsetMeasured @37 :Float32;  # m, positive = right
   nudgeCrossingCenterLine @38 :Bool;
+  # What each side's clearance came from: 0 nothing, 1 radar, 2 road edge (vision)
+  nudgeSourceLeft @39 :UInt8;
+  nudgeSourceRight @40 :UInt8;
 }
 
 struct FrogPilotRadarState @0xb86e6369214c01c8 {
@@ -204,6 +207,8 @@ struct FrogPilotRadarState @0xb86e6369214c01c8 {
   staticObstacleLeft @4 :StaticObstacle;
   staticObstacleRight @5 :StaticObstacle;
   oncomingDetected @6 :Bool;
+  # Every confirmed static object, for the HUD to box. The two above are the worst per side.
+  staticObstacles @7 :List(StaticObstacle);
 
   struct StaticObstacle {
     detected @0 :Bool;

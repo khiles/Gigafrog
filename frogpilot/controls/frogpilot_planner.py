@@ -182,6 +182,8 @@ class FrogPilotPlanner:
     frogpilotPlan.nudgeLateralAccel = float(self.frogpilot_nudge.lateral_accel)
     frogpilotPlan.nudgeOffsetMeasured = float(self.frogpilot_nudge.offset_measured)
     frogpilotPlan.nudgeOffsetTarget = float(self.frogpilot_nudge.offset_target)
+    frogpilotPlan.nudgeSourceLeft = int(self.frogpilot_nudge.source_left)
+    frogpilotPlan.nudgeSourceRight = int(self.frogpilot_nudge.source_right)
 
     frogpilotPlan.redLight = self.frogpilot_cem.stop_light_detected
 

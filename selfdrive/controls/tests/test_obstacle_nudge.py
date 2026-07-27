@@ -28,11 +28,25 @@ def make_model(offset=0.0, lane_half=1.85, edge_half=4.0, lanes_ok=True, edges_o
   return md
 
 
+NO_OBSTACLE = SimpleNamespace(detected=False, clearance=0.0, dRel=0.0, yRel=0.0, count=0)
+
+
 def obstacle(clearance):
+  """An obstacle whose clearance is quoted at lane centre.
+
+  Callers pass this through `simulate`, which re-derives the clearance from the car's
+  actual position each step. Holding it fixed would let a relative demand look like it
+  worked, which is precisely the bug that hid behind the old harness.
+  """
   return SimpleNamespace(detected=True, clearance=clearance, dRel=15.0, yRel=0.0, count=2)
 
 
-NO_OBSTACLE = SimpleNamespace(detected=False, clearance=0.0, dRel=0.0, yRel=0.0, count=0)
+def at_offset(obs, offset, left):
+  """Clearance seen from `offset` metres right of centre for a world-fixed obstacle."""
+  if not obs.detected:
+    return NO_OBSTACLE
+  clearance = obs.clearance + (offset if left else -offset)
+  return SimpleNamespace(detected=True, clearance=clearance, dRel=obs.dRel, yRel=obs.yRel, count=obs.count)
 
 
 def make_sm(md, obs_left=NO_OBSTACLE, obs_right=NO_OBSTACLE, oncoming=False, pressed=False):
@@ -82,6 +96,8 @@ def simulate(frogpilot_toggles, steps=200, v_ego=12.0, road_curvature=0.0, **sm_
   for i in range(steps):
     md = make_model(offset=plant.y)
     kwargs = {k: (v(i) if callable(v) else v) for k, v in sm_kwargs.items()}
+    kwargs["obs_left"] = at_offset(kwargs.get("obs_left", NO_OBSTACLE), plant.y, left=True)
+    kwargs["obs_right"] = at_offset(kwargs.get("obs_right", NO_OBSTACLE), plant.y, left=False)
     nudge.update(v_ego, make_sm(md, **kwargs), frogpilot_toggles)
     plant.step(nudge.a_cmd)
     history.append(SimpleNamespace(target=nudge.offset_target, measured=nudge.offset_measured,
@@ -121,7 +137,7 @@ def test_offset_does_not_limit_cycle():
   # The budget is measured from the current position while the setpoint is measured from
   # lane centre. If those frames aren't reconciled the budget shrinks as the car moves
   # into it and the servo oscillates.
-  _, history = simulate(toggles(), obs_left=obstacle(-5.0), steps=400)
+  _, history = simulate(toggles(), obs_left=obstacle(-0.5), steps=400)
   settled = [h.target for h in history[200:]]
   assert max(settled) - min(settled) < 0.02
   assert abs(history[-1].target) <= 0.5 + 1e-6
@@ -132,9 +148,18 @@ def test_symmetric_squeeze_holds_center():
   assert abs(history[-1].target) < 0.02
 
 
-def test_driver_input_suppresses_nudge():
+def test_sustained_steering_suppresses_nudge():
   nudge, _ = simulate(toggles(), obs_left=obstacle(0.2), pressed=lambda i: i > 100)
   assert abs(nudge.a_cmd) < 0.05
+
+
+def test_brief_steering_touch_does_not_suppress():
+  # Tesla trips steeringPressed at 1 Nm, so a hand resting on the wheel holds it true.
+  # Only sustained pressure may count as an override, or the feature never runs.
+  touch = int(0.4 / DT_MDL)
+  nudge, _ = simulate(toggles(), obs_left=obstacle(0.2),
+                      pressed=lambda i: 100 < i < 100 + touch)
+  assert abs(nudge.offset_target) > 0.2
 
 
 def test_curvature_derate_zeroes_command():
@@ -159,7 +184,8 @@ def test_retreats_when_oncoming_appears():
   peak = 0.0
   for i in range(300):
     md = make_model(offset=plant.y)
-    nudge.update(12.0, make_sm(md, obs_right=obstacle(0.2), oncoming=i > 150), frogpilot_toggles)
+    obs = at_offset(obstacle(0.2), plant.y, left=False)
+    nudge.update(12.0, make_sm(md, obs_right=obs, oncoming=i > 150), frogpilot_toggles)
     plant.step(nudge.a_cmd)
     if i == 150:
       peak = nudge.offset_target
@@ -220,3 +246,43 @@ def test_left_hand_traffic_crossing_detection():
   nudge.offset_target = -0.5
   assert not nudge._is_crossing(md, True)
   assert lht.left_hand_traffic and not rht.left_hand_traffic
+
+
+def test_demand_reaches_full_clearance():
+  # An absolute setpoint has a fixed point where the clearance is actually satisfied. A
+  # relative one ("how much further to go") shrinks as the car moves and settles at half.
+  _, history = simulate(toggles(obstacle_nudge_max_offset=1.0), obs_left=obstacle(0.7), steps=500)
+  assert history[-1].true_y == pytest.approx(0.3, abs=0.08)
+
+
+def test_offset_holds_while_obstacle_present():
+  _, history = simulate(toggles(), obs_left=obstacle(0.3), steps=600)
+  settled = [h.target for h in history[400:]]
+  assert max(settled) - min(settled) < 0.02
+  assert settled[-1] > 0.4
+
+
+def test_road_edge_fallback_ignores_an_ordinary_kerb():
+  # A road edge sitting outside the lane line is just a kerb and must not demand anything
+  left, right = N.road_edge_clearance(make_model(edge_half=4.0))
+  assert left is None and right is None
+
+
+def test_road_edge_fallback_detects_encroachment():
+  # An edge well inside the lane line is something sticking into the lane
+  left, right = N.road_edge_clearance(make_model(edge_half=1.4))
+  assert left == pytest.approx(1.4 - EGO_HALF_WIDTH, abs=1e-6)
+  assert right == pytest.approx(1.4 - EGO_HALF_WIDTH, abs=1e-6)
+
+
+def test_vision_only_nudges_without_radar():
+  # Encroaching on the left only: expect a rightward nudge with no radar involved at all
+  md = make_model(lane_half=1.85)
+  md.roadEdges = [Line(-1.3), Line(4.0)]
+  planner = SimpleNamespace(lateral_check=True, road_curvature=0.0)
+  nudge = N.FrogPilotNudge(planner)
+
+  nudge.update(12.0, make_sm(md), toggles())
+  assert nudge.source_left == N.SOURCE_VISION
+  assert nudge.source_right == N.SOURCE_NONE
+  assert nudge.offset_target > 0

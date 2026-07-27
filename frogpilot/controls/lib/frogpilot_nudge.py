@@ -43,7 +43,21 @@ RAMP_OFF = 0.50     # m/s, decay toward zero
 RAMP_RETREAT = 0.80 # m/s, decay when the budget itself shrank, i.e. oncoming appeared
 DEADBAND_BOTH = 0.15  # m, minimum net demand before acting on a two-sided squeeze
 SIDE_LATCH_S = 3.0  # s a committed side must be clear before we may reverse
-INHIBIT_S = 2.0     # s of suppression after a lane change or driver steering input
+INHIBIT_S = 2.0     # s of suppression after a lane change or blinker
+
+# steeringPressed is a very low bar on some cars — Tesla trips it at 1 Nm of torsion bar
+# torque, so a hand resting on the wheel holds it true continuously. Only treat it as a
+# deliberate override once it has been held, otherwise the feature never runs at all.
+STEER_CONFIRM_S = 0.7
+STEER_INHIBIT_S = 1.0
+
+# Vision fallback. There is no object-detection head in the model, so a parked car can't
+# be seen as such. What can be seen is the road edge, which the model tends to draw along
+# the line of parked cars rather than the kerb behind them.
+VISION_LOOKAHEAD = (4.0, 10.0, 18.0)  # m
+VISION_EDGE_STD_MAX = 0.5
+VISION_ENCROACH_MARGIN = 0.2   # m the edge must be inside the lane line to count
+NOMINAL_LANE_HALF = 1.7        # m, assumed half-width when the road is unmarked
 
 # Budget
 MARGIN_LANE = 0.15  # m
@@ -59,6 +73,7 @@ CURVE_BP = [0.005, 0.015]
 CURVE_V = [1.0, 0.0]
 
 REF_NONE, REF_LANE, REF_EDGE = 0, 1, 2
+SOURCE_NONE, SOURCE_RADAR, SOURCE_VISION = 0, 1, 2
 
 
 def measured_offset(model_data):
@@ -144,6 +159,56 @@ def lateral_budget(model_data, v_ego, oncoming_clear, frogpilot_toggles, offset=
   return float(np.clip(left - offset, 0.0, cap_left)), float(np.clip(right + offset, 0.0, cap_right))
 
 
+def road_edge_clearance(model_data):
+  """Clearance from each body edge to an *encroaching* road edge, in metres.
+
+  The vision fallback for cars with no usable radar. Returns (left, right), either of which
+  is None when that side has nothing encroaching.
+
+  The model has no object-detection head, so this cannot see a parked car as an object —
+  it sees the road edge, which on a street lined with parked cars gets drawn along the cars
+  rather than the kerb behind them. The encroachment test is what stops every ordinary kerb
+  from demanding a nudge: the edge only counts once it has come inside the lane line, or
+  inside a nominal lane half-width where the road is unmarked. It cannot tell a parked car
+  from a wall, a hedge or a skip.
+  """
+  stds = model_data.roadEdgeStds
+  if len(stds) < 2:
+    return None, None
+
+  probs = model_data.laneLineProbs
+  line_stds = model_data.laneLineStds
+  lanes_ok = (len(probs) >= 4 and len(line_stds) >= 4 and
+              min(probs[1], probs[2]) > LANE_PROB_MIN and max(line_stds[1], line_stds[2]) < LINE_STD_MAX)
+
+  clearances: list[float | None] = [None, None]
+  for index in (0, 1):
+    if stds[index] > VISION_EDGE_STD_MAX:
+      continue
+
+    sign = -1.0 if index == 0 else 1.0
+    worst = None
+    for x in VISION_LOOKAHEAD:
+      edge = model_data.roadEdges[index]
+      distance = sign * float(np.interp(x, edge.x, edge.y))
+
+      if lanes_ok:
+        line = model_data.laneLines[1 if index == 0 else 2]
+        limit = sign * float(np.interp(x, line.x, line.y)) - VISION_ENCROACH_MARGIN
+      else:
+        limit = NOMINAL_LANE_HALF
+
+      if distance >= limit:
+        continue
+
+      clearance = distance - EGO_HALF_WIDTH
+      worst = clearance if worst is None else min(worst, clearance)
+
+    clearances[index] = worst
+
+  return clearances[0], clearances[1]
+
+
 class FrogPilotNudge:
   def __init__(self, FrogPilotPlanner):
     self.frogpilot_planner = FrogPilotPlanner
@@ -156,8 +221,12 @@ class FrogPilotNudge:
     self.offset_target = 0.0
 
     self.inhibit_t = 0.0
+    self.steer_held_t = 0.0
     self.side_clear_t = 0.0
     self.nudge_side = 0
+
+    self.source_left = SOURCE_NONE
+    self.source_right = SOURCE_NONE
 
   def reset(self):
     self.offset_target = _toward_zero(self.offset_target, RAMP_OFF)
@@ -167,16 +236,27 @@ class FrogPilotNudge:
     if self.offset_target == 0.0:
       self.offset_measured = 0.0
       self.nudge_side = 0
+      self.source_left = SOURCE_NONE
+      self.source_right = SOURCE_NONE
 
   def update(self, v_ego, sm, frogpilot_toggles):
     model_data = sm["modelV2"]
     carstate = sm["carState"]
     radar_state = sm["frogpilotRadarState"]
 
-    driver_active = carstate.steeringPressed or carstate.leftBlinker or carstate.rightBlinker
+    # Distinguish a hand resting on the wheel from a deliberate override. steeringPressed
+    # alone is far too sensitive on some cars to gate a feature on.
+    if carstate.steeringPressed:
+      self.steer_held_t += DT_MDL
+    else:
+      self.steer_held_t = 0.0
+    steer_override = self.steer_held_t >= STEER_CONFIRM_S
+
     lane_changing = model_data.meta.laneChangeState != LaneChangeState.off
-    if driver_active or lane_changing:
+    if carstate.leftBlinker or carstate.rightBlinker or lane_changing:
       self.inhibit_t = INHIBIT_S
+    elif steer_override:
+      self.inhibit_t = max(self.inhibit_t, STEER_INHIBIT_S)
     else:
       self.inhibit_t = max(0.0, self.inhibit_t - DT_MDL)
 
@@ -197,7 +277,7 @@ class FrogPilotNudge:
     budget_left, budget_right = lateral_budget(model_data, v_ego, oncoming_clear,
                                                frogpilot_toggles, self.offset_measured)
 
-    u_raw = self._demand(radar_state, frogpilot_toggles)
+    u_raw = self._demand(radar_state, model_data, frogpilot_toggles)
 
     curve_scale = float(np.interp(abs(self.frogpilot_planner.road_curvature), CURVE_BP, CURVE_V))
     u_clipped = float(np.clip(u_raw, -budget_left, budget_right)) * curve_scale
@@ -231,20 +311,51 @@ class FrogPilotNudge:
 
     self.crossing_center_line = self._is_crossing(model_data, frogpilot_toggles.left_hand_traffic)
 
-  def _demand(self, radar_state, frogpilot_toggles):
-    """Net lateral demand in metres, positive = move right."""
-    min_clearance = frogpilot_toggles.obstacle_nudge_min_clearance
-    obstacle_left = radar_state.staticObstacleLeft
-    obstacle_right = radar_state.staticObstacleRight
+  def _clearances(self, radar_state, model_data):
+    """Clearance to the nearest obstruction each side, in metres, or None if clear.
 
-    need_right = max(0.0, min_clearance - obstacle_left.clearance) if obstacle_left.detected else 0.0
-    need_left = max(0.0, min_clearance - obstacle_right.clearance) if obstacle_right.detected else 0.0
-    u_raw = need_right - need_left
+    Radar wins where it has a confirmed object; the road-edge fallback fills in per side,
+    so a vision-only car still nudges and a radar car still gets help where the radar sees
+    nothing (kerbs, walls, wheelie bins are poor radar targets).
+    """
+    left = radar_state.staticObstacleLeft
+    right = radar_state.staticObstacleRight
+
+    clear_left = left.clearance if left.detected else None
+    clear_right = right.clearance if right.detected else None
+
+    edge_left, edge_right = road_edge_clearance(model_data)
+    if clear_left is None:
+      clear_left, self.source_left = edge_left, SOURCE_VISION if edge_left is not None else SOURCE_NONE
+    else:
+      self.source_left = SOURCE_RADAR
+    if clear_right is None:
+      clear_right, self.source_right = edge_right, SOURCE_VISION if edge_right is not None else SOURCE_NONE
+    else:
+      self.source_right = SOURCE_RADAR
+
+    return clear_left, clear_right
+
+  def _demand(self, radar_state, model_data, frogpilot_toggles):
+    """Absolute lateral setpoint in metres from lane centre, positive = right.
+
+    Expressed absolutely rather than as "how much further to go". A relative demand shrinks
+    as the car moves into it and settles at half the correction, because achieving the
+    clearance removes the reason for it.
+    """
+    min_clearance = frogpilot_toggles.obstacle_nudge_min_clearance
+    clear_left, clear_right = self._clearances(radar_state, model_data)
+
+    # Where we'd have to sit for each side to be satisfied. Clamped so a generously clear
+    # side never actively pulls us toward the other one.
+    from_left = max(0.0, self.offset_measured + min_clearance - clear_left) if clear_left is not None else 0.0
+    from_right = min(0.0, self.offset_measured - min_clearance + clear_right) if clear_right is not None else 0.0
+    u_raw = from_left + from_right
 
     # A symmetric squeeze commands nothing: there is nowhere to go, and holding centre is
-    # the honest answer. The net difference also converges on the midpoint of an asymmetric
-    # one rather than picking a winner and lurching.
-    if obstacle_left.detected and obstacle_right.detected:
+    # the honest answer. The sum also converges on the midpoint of an asymmetric one rather
+    # than picking a winner and lurching.
+    if clear_left is not None and clear_right is not None:
       if abs(u_raw) < DEADBAND_BOTH:
         u_raw = 0.0
       u_raw = float(np.clip(u_raw, -0.5 * frogpilot_toggles.obstacle_nudge_max_offset,

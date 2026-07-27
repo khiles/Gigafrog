@@ -42,6 +42,7 @@ MAX_OBSTACLE_LENGTH = 7.0       # m, the DBC signal saturates at 7.875
 MIN_PROB_EXIST = 50.0           # %
 MAX_PROB_NON_OBSTACLE = 50.0    # %
 MIN_STATIC_DREL = 1.0           # m
+MAX_DRAWN_OBSTACLES = 12        # cap on the list published for the HUD
 
 # Oncoming traffic qualification
 ONCOMING_SPEED_THRESHOLD = -2.5  # m/s world-frame; more negative means travelling toward us
@@ -397,6 +398,24 @@ def get_adjacent_lead(tracks: dict[int, Track], model_data: capnp._DynamicStruct
   return lead_dict
 
 
+def get_static_obstacles(tracks: dict[int, Track], model_data: capnp._DynamicStructReader,
+                         trigger_distance: float) -> list[dict[str, Any]]:
+  """Every confirmed static object in the window, nearest first, for the HUD to box."""
+  model_length = model_data.position.x[-1] if len(model_data.position.x) else 0.0
+
+  confirmed = [t for t in tracks.values()
+               if t.staticFilter.x >= THRESHOLD
+               and MIN_STATIC_DREL < t.dRel < min(trigger_distance, model_length)]
+
+  return [{
+    'detected': True,
+    'dRel': float(t.dRel),
+    'yRel': float(t.yRel),
+    'clearance': float(t.path_clearance(model_data)),
+    'count': 1,
+  } for t in sorted(confirmed, key=lambda c: c.dRel)[:MAX_DRAWN_OBSTACLES]]
+
+
 def get_static_obstacle(tracks: dict[int, Track], model_data: capnp._DynamicStructReader,
                         trigger_distance: float, left: bool = True) -> dict[str, Any]:
   """Summarise the confirmed static objects on one side of the predicted path.
@@ -528,6 +547,7 @@ class RadarD:
       trigger_distance = self.frogpilot_toggles.obstacle_nudge_trigger_distance
       self.frogpilot_radar_state.staticObstacleLeft = get_static_obstacle(self.tracks, model_data, trigger_distance, left=True)
       self.frogpilot_radar_state.staticObstacleRight = get_static_obstacle(self.tracks, model_data, trigger_distance, left=False)
+      self.frogpilot_radar_state.staticObstacles = get_static_obstacles(self.tracks, model_data, trigger_distance)
 
       # Max-hold latch. It only ever extends "occupied", so a few dropped radar frames
       # can never unlatch it — flicker-proof in the direction that matters.
@@ -542,6 +562,7 @@ class RadarD:
       self.oncoming_hold_t = 0.0
       self.frogpilot_radar_state.staticObstacleLeft = {'detected': False, 'count': 0}
       self.frogpilot_radar_state.staticObstacleRight = {'detected': False, 'count': 0}
+      self.frogpilot_radar_state.staticObstacles = []
       self.frogpilot_radar_state.oncomingDetected = False
 
     self.frogpilot_toggles = get_frogpilot_toggles(sm)

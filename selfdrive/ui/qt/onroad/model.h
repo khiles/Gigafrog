@@ -51,6 +51,7 @@ private:
                                 QPolygonF *pvd, int max_idx, float height, bool allow_invert = true);
   void updateAdjacentLeads(const cereal::FrogPilotRadarState::Reader &radar_state, const cereal::XYZTData::Reader &line);
   void updateRadarTracks(const cereal::XYZTData::Reader &line);
+  void updateStaticObstacles(const cereal::XYZTData::Reader &line);
 
   QPointF adjacent_lead_vertices[2] = {};
 };

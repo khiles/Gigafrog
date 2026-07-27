@@ -200,12 +200,15 @@ class Controls:
 
     # Obstacle nudge: a lateral offset away from parked cars, injected as a curvature bias.
     # Suppressed through both blend windows — the driver has just handed control back
-    # there, and a lateral bias would fight the ramp. The planner gates on steeringPressed
-    # too; this repeats it at the injection point where it can't be missed.
+    # there, and a lateral bias would fight the ramp.
+    #
+    # Deliberately does NOT gate on steeringPressed. On cars with a low torque threshold
+    # (Tesla trips it at 1 Nm) a hand resting on the wheel holds it true continuously, which
+    # would suppress the feature permanently. The planner owns that decision and only treats
+    # sustained pressure as an override; the post-press blend above still covers the handover.
     nudge_allowed = (CC.latActive
                      and self._resume_blend_t >= OVERRIDE_RESUME_BLEND_S
-                     and self._post_press_blend_t >= POST_PRESS_BLEND_S
-                     and not CS.steeringPressed)
+                     and self._post_press_blend_t >= POST_PRESS_BLEND_S)
     nudge_target = 0.0
     if nudge_allowed and self.frogpilot_toggles.obstacle_nudge:
       nudge_target = self.sm['frogpilotPlan'].nudgeLateralAccel / max(CS.vEgo, 4.0)**2

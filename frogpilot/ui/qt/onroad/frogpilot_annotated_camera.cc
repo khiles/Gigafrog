@@ -184,6 +184,8 @@ void FrogPilotAnnotatedCameraWidget::updateState(const UIState &s, const FrogPil
   nudgeCrossingCenterLine = frogpilotPlan.getNudgeCrossingCenterLine();
   nudgeOffsetMeasured = frogpilotPlan.getNudgeOffsetMeasured();
   nudgeOffsetTarget = frogpilotPlan.getNudgeOffsetTarget();
+  nudgeSourceLeft = frogpilotPlan.getNudgeSourceLeft();
+  nudgeSourceRight = frogpilotPlan.getNudgeSourceRight();
   mapboxSpeedLimit = frogpilotPlan.getSlcMapboxSpeedLimit();
   nextSpeedLimit = frogpilotPlan.getSlcNextSpeedLimit();
   redLight = frogpilotPlan.getRedLight();
@@ -920,14 +922,47 @@ void FrogPilotAnnotatedCameraWidget::paintRainbowPath(QPainter &p, QLinearGradie
   p.restore();
 }
 
+QString FrogPilotAnnotatedCameraWidget::nudgeSourceText() {
+  auto describe = [](int source) {
+    return source == 1 ? tr("radar") : source == 2 ? tr("edge") : QString("-");
+  };
+
+  if (nudgeSourceLeft == 0 && nudgeSourceRight == 0) {
+    return tr("clear");
+  }
+  return QString("L:%1  R:%2").arg(describe(nudgeSourceLeft), describe(nudgeSourceRight));
+}
+
 void FrogPilotAnnotatedCameraWidget::paintNudgeStatus(QPainter &p) {
+  p.save();
+
+  // Box every confirmed static object. Amber while merely detected, red once it's the one
+  // driving the offset. Seeing no boxes at all is itself the answer to "is this working".
+  p.setBrush(Qt::NoBrush);
+  for (const QRectF &box : static_obstacles) {
+    p.setPen(QPen(QColor(255, 176, 0, 220), 4));
+    p.drawRect(box);
+  }
+
+  // Always-on armed banner, so it's never ambiguous whether the feature is running
+  QString status = QString("%1  %2").arg(tr("NUDGE"), nudgeSourceText());
+  p.setFont(InterFont(32, QFont::DemiBold));
+  QFontMetrics banner(p.font());
+  int bannerX = rect().center().x() - banner.horizontalAdvance(status) / 2;
+  int bannerY = rect().bottom() - 190;
+
+  QPainterPath bannerPath;
+  bannerPath.addText(bannerX, bannerY, p.font(), status);
+  p.setPen(QPen(blackColor(200), 5));
+  p.setBrush(static_obstacles.empty() ? whiteColor(140) : QColor(255, 176, 0, 230));
+  p.drawPath(bannerPath);
+
   // Keyed off the target alone. The measured value is lane-centre error, which is nonzero
   // whenever the model isn't perfectly centred, so gating on it would flicker constantly.
   if (std::abs(nudgeOffsetTarget) < 0.02f) {
+    p.restore();
     return;
   }
-
-  p.save();
 
   float maxOffset = std::max(static_cast<float>(frogpilot_toggles.value("obstacle_nudge_max_offset").toDouble()), 0.1f);
   float strength = std::clamp(std::abs(nudgeOffsetTarget) / maxOffset, 0.0f, 1.0f);

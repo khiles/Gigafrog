@@ -56,13 +56,13 @@ FrogPilotLateralPanel::FrogPilotLateralPanel(FrogPilotSettingsWindow *parent, bo
     {"LaneDetectionWidth", tr("Minimum Lane Width"), tr("<b>Prevent automatic lane changes into lanes narrower than the set width.</b>"), ""},
     {"OneLaneChange", tr("One Lane Change Per Signal"), tr("<b>Limit automatic lane changes to one per turn-signal activation.</b>"), ""},
 
-    {"ObstacleNudge", tr("Parked Car Avoidance"), tr("<b>Steer away from parked cars and other static roadside objects detected by radar.</b> The nudge stays within the lane unless \"Cross the Center Line\" is enabled."), "../../frogpilot/assets/toggle_icons/icon_lane.png"},
+    {"ObstacleNudge", tr("Parked Car Avoidance"), tr("<b>Steer away from parked cars and other static roadside objects.</b> Uses radar where the car has it, and falls back to the road edge from the camera where it doesn't. Detected objects are boxed on screen. The nudge stays within the lane unless \"Cross the Center Line\" is enabled."), "../../frogpilot/assets/toggle_icons/icon_lane.png"},
     {"ObstacleNudgeMinClearance", tr("Minimum Clearance"), tr("<b>How much room to leave between the side of your car and a detected roadside object.</b> openpilot starts shifting over when it can't achieve this."), ""},
     {"ObstacleNudgeMaxOffset", tr("Maximum Offset"), tr("<b>The furthest openpilot will shift the path sideways.</b> Always additionally limited by the lane lines and road edges."), ""},
     {"ObstacleNudgeTriggerDistance", tr("Detection Distance"), tr("<b>How far ahead openpilot looks for static roadside objects.</b>"), ""},
     {"ObstacleNudgeMinSpeed", tr("Minimum Speed"), tr("<b>Lowest speed at which openpilot will nudge away from objects.</b>"), ""},
     {"ObstacleNudgeMaxSpeed", tr("Maximum Speed"), tr("<b>Highest speed at which openpilot will nudge away from objects.</b>"), ""},
-    {"ObstacleNudgeCrossCenterLine", tr("Cross the Center Line"), tr("<b>Allow the nudge to cross the center line when radar detects no oncoming traffic.</b> Radar cannot see over crests, around bends, or past the edges of its field of view — no detection is not proof the road is clear. Use with care."), ""},
+    {"ObstacleNudgeCrossCenterLine", tr("Cross the Center Line"), tr("<b>Allow the nudge to cross the center line when radar detects no oncoming traffic.</b> Requires radar — there is no camera-based source for oncoming traffic. Radar cannot see over crests, around bends, or past the edges of its field of view, so no detection is not proof the road is clear. Use with care."), ""},
     {"ObstacleNudgeMaxCenterLineOvershoot", tr("Maximum Overshoot"), tr("<b>How far past the center line openpilot may go.</b> The road edge always remains a hard limit."), ""},
     {"ObstacleNudgeGain", tr("Response Gain"), tr("<b>How aggressively openpilot moves to the offset it wants.</b> Raise if it undershoots; lower if it feels twitchy or hunts."), ""},
 
@@ -470,12 +470,13 @@ void FrogPilotLateralPanel::updateToggles() {
       setVisible &= params.getBool("LaneChanges") && params.getBool("NudgelessLaneChange");
     }
 
-    else if (key.startsWith("ObstacleNudge")) {
+    else if (key == "ObstacleNudgeCrossCenterLine") {
+      // No vision source for oncoming traffic, so this is radar-only
       setVisible &= parent->hasRadar;
+    }
 
-      if (key == "ObstacleNudgeMaxCenterLineOvershoot") {
-        setVisible &= params.getBool("ObstacleNudgeCrossCenterLine");
-      }
+    else if (key == "ObstacleNudgeMaxCenterLineOvershoot") {
+      setVisible &= parent->hasRadar && params.getBool("ObstacleNudgeCrossCenterLine");
     }
 
     else if (key == "NNFF") {
