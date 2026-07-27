@@ -331,6 +331,13 @@ void FrogPilotLateralPanel::updateMetric(bool metric, bool bootRun) {
   static std::map<float, QString> imperialRangeLabels;
   static std::map<float, QString> metricRangeLabels;
 
+  // The obstacle nudge stores 0 as "not set" rather than "off", so it needs its own copies
+  // that say so — the code substitutes a unit-appropriate default in that case.
+  static std::map<float, QString> imperialNudgeDistanceLabels;
+  static std::map<float, QString> metricNudgeDistanceLabels;
+  static std::map<float, QString> imperialNudgeSpeedLabels;
+  static std::map<float, QString> metricNudgeSpeedLabels;
+
   static bool labelsInitialized = false;
   if (!labelsInitialized) {
     for (int i = 0; i <= 200; ++i) {
@@ -359,6 +366,18 @@ void FrogPilotLateralPanel::updateMetric(bool metric, bool bootRun) {
       metricSpeedLabels[i] = i == 0 ? tr("Off") : QString::number(i) + tr(" km/h");
     }
 
+    imperialNudgeDistanceLabels = imperialDistanceLabels;
+    metricNudgeDistanceLabels = metricDistanceLabels;
+    imperialNudgeSpeedLabels = imperialSpeedLabels;
+    metricNudgeSpeedLabels = metricSpeedLabels;
+
+    imperialNudgeDistanceLabels[0] = tr("Default");
+    metricNudgeDistanceLabels[0] = tr("Default");
+    imperialNudgeSpeedLabels[0] = tr("Default");
+    metricNudgeSpeedLabels[0] = tr("Default");
+    imperialRangeLabels[0] = tr("Default");
+    metricRangeLabels[0] = tr("Default");
+
     labelsInitialized = true;
   }
 
@@ -381,13 +400,13 @@ void FrogPilotLateralPanel::updateMetric(bool metric, bool bootRun) {
     pauseAOLOnBrakeToggle->updateControl(0, 150, metricSpeedLabels);
     pauseLateralToggle->updateControl(0, 150, metricSpeedLabels);
 
-    nudgeOvershootToggle->updateControl(0, 0.6, metricDistanceLabels);
-    nudgeMaxOffsetToggle->updateControl(0.1, 1.0, metricDistanceLabels);
-    nudgeMinClearanceToggle->updateControl(0.3, 2.0, metricDistanceLabels);
-    nudgeTriggerDistanceToggle->updateControl(5, 60, metricRangeLabels);
+    nudgeOvershootToggle->updateControl(0, 0.6, metricNudgeDistanceLabels);
+    nudgeMaxOffsetToggle->updateControl(0, 1.0, metricNudgeDistanceLabels);
+    nudgeMinClearanceToggle->updateControl(0, 2.0, metricNudgeDistanceLabels);
+    nudgeTriggerDistanceToggle->updateControl(0, 60, metricRangeLabels);
 
-    nudgeMaxSpeedToggle->updateControl(0, 150, metricSpeedLabels);
-    nudgeMinSpeedToggle->updateControl(0, 150, metricSpeedLabels);
+    nudgeMaxSpeedToggle->updateControl(0, 150, metricNudgeSpeedLabels);
+    nudgeMinSpeedToggle->updateControl(0, 150, metricNudgeSpeedLabels);
   } else {
     laneWidthToggle->updateControl(0, 15, imperialDistanceLabels);
 
@@ -395,13 +414,13 @@ void FrogPilotLateralPanel::updateMetric(bool metric, bool bootRun) {
     pauseAOLOnBrakeToggle->updateControl(0, 99, imperialSpeedLabels);
     pauseLateralToggle->updateControl(0, 99, imperialSpeedLabels);
 
-    nudgeOvershootToggle->updateControl(0, 2.0, imperialDistanceLabels);
-    nudgeMaxOffsetToggle->updateControl(0.3, 3.3, imperialDistanceLabels);
-    nudgeMinClearanceToggle->updateControl(1.0, 6.5, imperialDistanceLabels);
-    nudgeTriggerDistanceToggle->updateControl(16, 200, imperialRangeLabels);
+    nudgeOvershootToggle->updateControl(0, 2.0, imperialNudgeDistanceLabels);
+    nudgeMaxOffsetToggle->updateControl(0, 3.3, imperialNudgeDistanceLabels);
+    nudgeMinClearanceToggle->updateControl(0, 6.5, imperialNudgeDistanceLabels);
+    nudgeTriggerDistanceToggle->updateControl(0, 200, imperialRangeLabels);
 
-    nudgeMaxSpeedToggle->updateControl(0, 99, imperialSpeedLabels);
-    nudgeMinSpeedToggle->updateControl(0, 99, imperialSpeedLabels);
+    nudgeMaxSpeedToggle->updateControl(0, 99, imperialNudgeSpeedLabels);
+    nudgeMinSpeedToggle->updateControl(0, 99, imperialNudgeSpeedLabels);
   }
 }
 

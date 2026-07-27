@@ -13,8 +13,10 @@ cars, and the integrator would march the car into the oncoming lane.
 
 Everything here is in the model/calibrated frame, where **positive is right**.
 
-Right-hand traffic is assumed: the centre line is laneLines[1] (left) and oncoming traffic
-approaches on the left. This matches the oncoming detector in radard.py.
+Which side the centre line is on comes from ``left_hand_traffic`` (derived from the
+persistent ``IsRhdDetected`` param): under right-hand traffic the centre line is
+laneLines[1] and oncoming approaches on the left; under left-hand traffic it's laneLines[2]
+and oncoming approaches on the right. radard's oncoming detector uses the same flag.
 """
 import numpy as np
 
@@ -121,16 +123,22 @@ def lateral_budget(model_data, v_ego, oncoming_clear, frogpilot_toggles, offset=
   # Crossing the centre line extends both the lane-line budget and the offset cap. It has
   # to extend the cap too: on a normal lane the lane-line budget already exceeds the
   # default cap, so extending only the budget would leave the toggle doing nothing.
-  # The road edge is the hard limit and still clamps — on a residential street
-  # laneLines[1] is the centre line and roadEdges[0] is the far kerb. Crossing the centre
-  # is permitted, crossing the kerb never is.
+  # The road edge is the hard limit and still clamps — on a residential street the centre
+  # line is one side and the far kerb is the other. Crossing the centre is permitted,
+  # crossing the kerb never is.
   cap_left = cap_right = frogpilot_toggles.obstacle_nudge_max_offset
   if lanes_ok and frogpilot_toggles.obstacle_nudge_cross_center_line and oncoming_clear:
     overshoot = frogpilot_toggles.obstacle_nudge_max_center_line_overshoot
-    left += overshoot
-    cap_left += overshoot
-    if edges_ok:
-      left = min(left, min(edge_limit(0, x) for x in xs))
+    if frogpilot_toggles.left_hand_traffic:
+      right += overshoot
+      cap_right += overshoot
+      if edges_ok:
+        right = min(right, min(edge_limit(1, x) for x in xs))
+    else:
+      left += overshoot
+      cap_left += overshoot
+      if edges_ok:
+        left = min(left, min(edge_limit(0, x) for x in xs))
 
   # Convert from room-remaining into absolute limits either side of the lane centre
   return float(np.clip(left - offset, 0.0, cap_left)), float(np.clip(right + offset, 0.0, cap_right))
@@ -221,7 +229,7 @@ class FrogPilotNudge:
     a_raw = float(np.clip(a_raw, -A_MAX, A_MAX))
     self.a_cmd = _rate_limit(self.a_cmd, a_raw, A_RATE)
 
-    self.crossing_center_line = self._is_crossing(model_data)
+    self.crossing_center_line = self._is_crossing(model_data, frogpilot_toggles.left_hand_traffic)
 
   def _demand(self, radar_state, frogpilot_toggles):
     """Net lateral demand in metres, positive = move right."""
@@ -268,20 +276,23 @@ class FrogPilotNudge:
 
     return 0.0
 
-  def _is_crossing(self, model_data):
+  def _is_crossing(self, model_data, left_hand_traffic):
     """True when we are actually on or over the centre line.
 
-    laneLines[1].y already moves with us, so no offset arithmetic is needed: if the left
-    line has come inside our left body edge, we're on it.
+    The lane lines already move with us, so no offset arithmetic is needed: if the centre
+    line has come inside our body edge, we're on it. Under left-hand traffic the centre
+    line is laneLines[2] and we approach it by moving right.
     """
-    if self.offset_target >= 0.0:
+    index = 2 if left_hand_traffic else 1
+    if (self.offset_target <= 0.0) if left_hand_traffic else (self.offset_target >= 0.0):
       return False
 
     probs = model_data.laneLineProbs
-    if len(probs) < 4 or probs[1] <= LANE_PROB_MIN:
+    if len(probs) < 4 or probs[index] <= LANE_PROB_MIN:
       return False
 
-    return float(model_data.laneLines[1].y[0]) > -EGO_HALF_WIDTH
+    edge = float(model_data.laneLines[index].y[0])
+    return edge < EGO_HALF_WIDTH if left_hand_traffic else edge > -EGO_HALF_WIDTH
 
   @property
   def lateral_accel(self):

@@ -242,8 +242,11 @@ class Track:
       return False
     return abs(self.vLeadK) < STATIC_SPEED_THRESHOLD
 
-  def is_oncoming(self, model_data: capnp._DynamicStructReader) -> bool:
-    """True when this track is traffic approaching us in the lane to our left.
+  def is_oncoming(self, model_data: capnp._DynamicStructReader, left_hand_traffic: bool = False) -> bool:
+    """True when this track is traffic approaching us in the oncoming lane.
+
+    Which side that is depends on the country: oncoming is on the left under right-hand
+    traffic and on the right under left-hand traffic (UK, Ireland, Japan, Australia).
 
     ``vLeadK`` is world-frame absolute speed, so an approaching vehicle reads negative.
     Class is only used to exclude pedestrians — a motorcycle closing at 15 m/s must count.
@@ -258,8 +261,15 @@ class Track:
       return False
     if not (ONCOMING_MIN_DREL < self.dRel < ONCOMING_MAX_DREL):
       return False
-    if self.path_lateral(model_data) > -ONCOMING_MIN_LATERAL:
+
+    # path_lateral is right-positive, so oncoming sits positive under left-hand traffic
+    lateral = self.path_lateral(model_data)
+    if left_hand_traffic:
+      if lateral < ONCOMING_MIN_LATERAL:
+        return False
+    elif lateral > -ONCOMING_MIN_LATERAL:
       return False
+
     return self.dRel / max(-self.vRel, 0.1) < ONCOMING_MAX_TTC
 
   def potential_far_lead(self, lead_msg: capnp._DynamicStructReader, model_data: capnp._DynamicStructReader):
@@ -521,7 +531,8 @@ class RadarD:
 
       # Max-hold latch. It only ever extends "occupied", so a few dropped radar frames
       # can never unlatch it — flicker-proof in the direction that matters.
-      if any(t.is_oncoming(model_data) for t in self.tracks.values()):
+      left_hand_traffic = self.frogpilot_toggles.left_hand_traffic
+      if any(t.is_oncoming(model_data, left_hand_traffic) for t in self.tracks.values()):
         self.oncoming_hold_t = ONCOMING_LATCH_S
       else:
         self.oncoming_hold_t = max(0.0, self.oncoming_hold_t - DT_MDL)

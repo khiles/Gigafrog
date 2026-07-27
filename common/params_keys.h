@@ -321,15 +321,14 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"ObstacleNudge", {PERSISTENT, BOOL, "0", "0", 3}},
     {"ObstacleNudgeCrossCenterLine", {PERSISTENT, BOOL, "0", "0", 3}},
     {"ObstacleNudgeGain", {PERSISTENT, FLOAT, "1.0", "1.0", 3}},
-    // Distance defaults are metre-valued. A single stored default is read as feet for
-    // imperial users and metres for metric users, so metre values make the imperial
-    // reading conservatively small rather than clamping to the most aggressive end.
-    {"ObstacleNudgeMaxCenterLineOvershoot", {PERSISTENT, FLOAT, "0.3", "0.3", 3}},
-    {"ObstacleNudgeMaxOffset", {PERSISTENT, FLOAT, "0.5", "0.5", 3}},
-    {"ObstacleNudgeMaxSpeed", {PERSISTENT, INT, "45", "45", 3}},
-    {"ObstacleNudgeMinClearance", {PERSISTENT, FLOAT, "1.0", "1.0", 3}},
-    {"ObstacleNudgeMinSpeed", {PERSISTENT, INT, "10", "10", 3}},
-    {"ObstacleNudgeTriggerDistance", {PERSISTENT, INT, "30", "30", 3}},
+    // These are stored in the user's display units, so no single default suits both metric
+    // and imperial. 0 means "not set" and frogpilot_variables substitutes an SI default.
+    {"ObstacleNudgeMaxCenterLineOvershoot", {PERSISTENT, FLOAT, "0.0", "0.0", 3}},
+    {"ObstacleNudgeMaxOffset", {PERSISTENT, FLOAT, "0.0", "0.0", 3}},
+    {"ObstacleNudgeMaxSpeed", {PERSISTENT, INT, "0", "0", 3}},
+    {"ObstacleNudgeMinClearance", {PERSISTENT, FLOAT, "0.0", "0.0", 3}},
+    {"ObstacleNudgeMinSpeed", {PERSISTENT, INT, "0", "0", 3}},
+    {"ObstacleNudgeTriggerDistance", {PERSISTENT, INT, "0", "0", 3}},
     {"Offset1", {PERSISTENT, FLOAT, "5.0", "0.0", 0}},
     {"Offset2", {PERSISTENT, FLOAT, "5.0", "0.0", 0}},
     {"Offset3", {PERSISTENT, FLOAT, "5.0", "0.0", 0}},

@@ -51,7 +51,7 @@ def toggles(**kw):
               obstacle_nudge_gain=1.0, obstacle_nudge_max_center_line_overshoot=0.0,
               obstacle_nudge_max_offset=0.5, obstacle_nudge_max_speed=20.0,
               obstacle_nudge_min_clearance=1.0, obstacle_nudge_min_speed=4.5,
-              obstacle_nudge_trigger_distance=30.0)
+              obstacle_nudge_trigger_distance=30.0, left_hand_traffic=False)
   base.update(kw)
   return SimpleNamespace(**base)
 
@@ -190,3 +190,33 @@ def test_road_edge_clamps_overshoot():
 def test_no_reference_falls_back_to_hard_cap():
   left, right = N.lateral_budget(make_model(lanes_ok=False, edges_ok=False), 12.0, True, toggles())
   assert left == right == N.CAP_NO_REF
+
+
+@pytest.mark.parametrize("oncoming", [False, True])
+def test_left_hand_traffic_mirrors_the_overshoot(oncoming):
+  # Under left-hand traffic the centre line is laneLines[2], so the overshoot has to extend
+  # the RIGHT budget. Extending the left would push toward the kerb instead.
+  frogpilot_toggles = toggles(obstacle_nudge_cross_center_line=True,
+                              obstacle_nudge_max_center_line_overshoot=0.3,
+                              left_hand_traffic=True)
+  left, right = N.lateral_budget(make_model(), 12.0, not oncoming, frogpilot_toggles)
+  assert left == pytest.approx(0.5)
+  assert right == pytest.approx(0.8 if not oncoming else 0.5)
+
+
+def test_left_hand_traffic_crossing_detection():
+  planner = SimpleNamespace(lateral_check=True, road_curvature=0.0)
+  nudge = N.FrogPilotNudge(planner)
+
+  lht = toggles(left_hand_traffic=True)
+  rht = toggles(left_hand_traffic=False)
+
+  # Sitting 1.0 m right of centre puts laneLines[2] at 0.85 m, inside the body half width
+  md = make_model(offset=1.0)
+  nudge.offset_target = 0.5
+  assert nudge._is_crossing(md, True)      # LHT: moving right crosses the centre line
+  assert not nudge._is_crossing(md, False)  # RHT: moving right heads for the kerb
+
+  nudge.offset_target = -0.5
+  assert not nudge._is_crossing(md, True)
+  assert lht.left_hand_traffic and not rht.left_hand_traffic

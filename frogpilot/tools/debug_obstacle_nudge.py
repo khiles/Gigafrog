@@ -42,7 +42,9 @@ def main():
               "ObstacleNudgeTriggerDistance"):
     print(f"  {key:38s} = {params.get(key)}")
   print(f"  {'IsMetric':38s} = {params.get_bool('IsMetric')}")
-  print(f"  {'TuningLevel':38s} = {params.get('TuningLevel')}")
+  print(f"  {'IsRhdDetected':38s} = {params.get_bool('IsRhdDetected')}  (True => left-hand traffic)")
+  print(f"  {'TuningLevel':38s} = {params.get('TuningLevel')}  (must be 3 for these to apply)")
+  print("  a stored 0 means 'not set' and falls back to the built-in SI default")
 
   printed_toggles = False
   last = 0.0
@@ -57,7 +59,7 @@ def main():
     if not printed_toggles:
       print("\nResolved toggles (what the code actually sees, SI units):")
       for name in sorted(vars(toggles)):
-        if name.startswith("obstacle_nudge"):
+        if name.startswith("obstacle_nudge") or name == "left_hand_traffic":
           print(f"  {name:44s} = {getattr(toggles, name)}")
       if not getattr(toggles, "obstacle_nudge", False):
         print("\n!! obstacle_nudge is False. Either the toggle is off, TuningLevel < 3,")
