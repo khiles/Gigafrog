@@ -929,7 +929,7 @@ void FrogPilotAnnotatedCameraWidget::paintNudgeStatus(QPainter &p) {
 
   p.save();
 
-  float maxOffset = std::max(frogpilot_toggles.value("obstacle_nudge_max_offset").toFloat(), 0.1f);
+  float maxOffset = std::max(static_cast<float>(frogpilot_toggles.value("obstacle_nudge_max_offset").toDouble()), 0.1f);
   float strength = std::clamp(std::abs(nudgeOffsetTarget) / maxOffset, 0.0f, 1.0f);
   bool movingLeft = nudgeOffsetTarget < 0;
 
@@ -966,7 +966,8 @@ void FrogPilotAnnotatedCameraWidget::paintNudgeStatus(QPainter &p) {
                      .arg(std::abs(nudgeOffsetMeasured) * distanceConversion, 0, 'f', 2)
                      .arg(unit);
   if (nudgeCrossingCenterLine) {
-    text += "  " + tr("CROSSING");
+    text += "  ";
+    text += tr("CROSSING");
   }
 
   p.setFont(InterFont(40, QFont::DemiBold));
