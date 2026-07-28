@@ -26,6 +26,10 @@ class CarInterface(CarInterfaceBase):
     ret.steerControlType = structs.CarParams.SteerControlType.angle
     ret.radarUnavailable = True
 
+    # DAS_status carries DAS_blindSpotRearLeft/Right, read in carstate. Without this the
+    # blind spot UI and alerts stay hidden on a car whose sensors work.
+    ret.enableBsm = any(0x39B in f for f in fingerprint.values())
+
     ret.alphaLongitudinalAvailable = True
     if alpha_long:
       ret.openpilotLongitudinalControl = True
@@ -67,6 +71,11 @@ class CarInterface(CarInterfaceBase):
 
     ret.steerControlType = structs.CarParams.SteerControlType.angle
     ret.radarUnavailable = candidate in (CAR.TESLA_MODEL_S_HW2, )
+
+    # HW3 gets blind spot from AutopilotStatus on the chassis bus (see carstate). The bus
+    # is searched rather than indexed because CANBUS.chassis is remapped in CarState.__init__,
+    # which runs after this. Matches the 0x201 check above.
+    ret.enableBsm = candidate == CAR.TESLA_MODEL_S_HW3 and any(0x399 in f for f in fingerprint.values())
 
     # Longitudinal is always enabled for legacy cars (not alpha/optional).
     # Do NOT set alphaLongitudinalAvailable — that would make the UI require the
