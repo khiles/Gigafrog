@@ -57,6 +57,8 @@ FrogPilotVisualsPanel::FrogPilotVisualsPanel(FrogPilotSettingsWindow *parent, bo
 
     {"NavigationUI", tr("Navigation Widgets"), tr("<b>Speed limits, and other navigation widgets.</b>"), "../../frogpilot/assets/toggle_icons/icon_map.png"},
     {"RoadNameUI", tr("Road Name"), tr("<b>Display the road name at the bottom of the driving screen</b> using data from \"OpenStreetMap (OSM)\"."), ""},
+    {"RoadReferenceUI", tr("Road Number"), tr("<b>Show the road's number alongside its name</b>, such as M6 or A34. Uses data from \"OpenStreetMap (OSM)\"."), ""},
+    {"ShowAdvisorySpeed", tr("Show Advisory Speeds"), tr("<b>Show advisory speeds for bends, slip roads and roundabout approaches.</b> These are recommendations, not legal limits, so they are shown separately from the speed limit sign. Uses data from \"OpenStreetMap (OSM)\"."), ""},
     {"ShowSpeedLimits", tr("Show Speed Limits"), tr("<b>Show speed limits</b> in the top-left corner of the driving screen. Uses data from the car's dashboard (if supported) and \"OpenStreetMap (OSM)\"."), ""},
     {"SLCMapboxFiller", tr("Show Speed Limits from Mapbox"), tr("<b>Use Mapbox speed-limit data when no other source is available.</b>"), ""},
     {"UseVienna", tr("Use Vienna-Style Speed Signs"), tr("<b>Show Vienna-style (EU) speed-limit signs</b> instead of MUTCD (US)."), ""},

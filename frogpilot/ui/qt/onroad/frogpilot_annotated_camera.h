@@ -68,6 +68,7 @@ private:
   void paintLongitudinalPaused(QPainter &p);
   void paintPedalIcons(QPainter &p);
   void paintPendingSpeedLimit(QPainter &p);
+  void paintAdvisorySpeed(QPainter &p);
   void paintRadarTracks(QPainter &p);
   void paintRoadName(QPainter &p);
   void paintSpeedLimit(QPainter &p);
@@ -104,6 +105,9 @@ private:
   int weatherId;
 
   float accelerationEgo;
+  float advisorySpeed;
+  float nextAdvisorySpeed;
+  float nextAdvisorySpeedDistance;
   float cscSpeed;
   float dashboardSpeedLimit;
   float distanceConversion;
@@ -169,6 +173,7 @@ private:
   QString leadDistanceUnit;
   QString leadSpeedUnit;
   QString roadName;
+  QString roadRef;
   QString speedLimitOffsetStr;
   QString speedUnit;
 

@@ -3,6 +3,10 @@
 #include <QDateTime>
 #include <cmath>
 
+// How far ahead to show an upcoming advisory speed
+constexpr float ADVISORY_LOOKAHEAD = 10.0f;      // s of travel
+constexpr float MIN_ADVISORY_DISTANCE = 150.0f;  // m, so it still shows in time at low speed
+
 FrogPilotAnnotatedCameraWidget::FrogPilotAnnotatedCameraWidget(QWidget *parent) : QWidget(parent) {
   animationTimer = new QTimer(this);
 
@@ -186,6 +190,10 @@ void FrogPilotAnnotatedCameraWidget::updateState(const UIState &s, const FrogPil
   redLight = frogpilotPlan.getRedLight();
   roadCurvature = frogpilotPlan.getRoadCurvature();
   roadName = QString::fromStdString(mapdOut.getRoadName());
+  roadRef = QString::fromStdString(mapdOut.getWayRef());
+  advisorySpeed = mapdOut.getAdvisorySpeed();
+  nextAdvisorySpeed = mapdOut.getNextAdvisorySpeed();
+  nextAdvisorySpeedDistance = mapdOut.getNextAdvisorySpeedDistance();
   slcOverriddenSpeed = frogpilotPlan.getSlcOverriddenSpeed();
   speedLimit = slcOverriddenSpeed != 0 ? slcOverriddenSpeed : frogpilotPlan.getSlcSpeedLimit();
   speedLimitChanged = frogpilotPlan.getSpeedLimitChanged();
@@ -307,6 +315,10 @@ void FrogPilotAnnotatedCameraWidget::paintFrogPilotWidgets(QPainter &p, UIState 
 
   if (frogpilot_toggles.value("road_name_ui").toBool()) {
     paintRoadName(p);
+  }
+
+  if (frogpilot_toggles.value("show_advisory_speed").toBool()) {
+    paintAdvisorySpeed(p);
   }
 
   bool hideSpeedLimit = !speedLimitChanged && frogpilot_toggles.value("hide_speed_limit").toBool();
@@ -953,8 +965,54 @@ void FrogPilotAnnotatedCameraWidget::paintRadarTracks(QPainter &p) {
   p.restore();
 }
 
+// Advisory speeds are not legal limits — UK slip roads, bends and roundabout approaches
+// carry maxspeed:advisory. Drawn amber and labelled so it can never read as a limit sign.
+void FrogPilotAnnotatedCameraWidget::paintAdvisorySpeed(QPainter &p) {
+  float advisory = advisorySpeed;
+  bool upcoming = false;
+
+  if (advisory <= 0 && nextAdvisorySpeed > 0 && nextAdvisorySpeedDistance > 0 &&
+      nextAdvisorySpeedDistance < std::max(speed / speedConversion * ADVISORY_LOOKAHEAD, MIN_ADVISORY_DISTANCE)) {
+    advisory = nextAdvisorySpeed;
+    upcoming = true;
+  }
+
+  if (advisory <= 0) {
+    return;
+  }
+
+  p.save();
+
+  QString text = QString("%1  %2 %3").arg(tr("ADVISORY"),
+                                          QString::number(qRound(advisory * speedConversion)), speedUnit);
+
+  QFont font = InterFont(35, QFont::DemiBold);
+  int textWidth = QFontMetrics(font).horizontalAdvance(text);
+
+  QSize size(textWidth + 60, 46);
+  QRect advisoryRect = QStyle::alignedRect(Qt::LeftToRight, Qt::AlignHCenter | Qt::AlignBottom, size,
+                                           rect().adjusted(0, 0, 0, -(roadName.isEmpty() && roadRef.isEmpty() ? 5 : 62)));
+
+  p.setBrush(blackColor(166));
+  p.setOpacity(upcoming ? 0.7 : 1.0);
+  p.setPen(QPen(blackColor(), 10));
+  p.drawRoundedRect(advisoryRect, 22, 22);
+
+  p.setFont(font);
+  p.setPen(QPen(QColor(255, 176, 0), 6));
+  p.drawText(advisoryRect, Qt::AlignCenter, text);
+
+  p.restore();
+}
+
 void FrogPilotAnnotatedCameraWidget::paintRoadName(QPainter &p) {
-  if (roadName.isEmpty()) {
+  // Prefer the road number where OSM has one — UK drivers navigate by A34, not by its name
+  QString label = roadName;
+  if (!roadRef.isEmpty() && frogpilot_toggles.value("road_reference_ui").toBool()) {
+    label = roadName.isEmpty() ? roadRef : QString("%1  ·  %2").arg(roadRef, roadName);
+  }
+
+  if (label.isEmpty()) {
     return;
   }
 
@@ -962,7 +1020,7 @@ void FrogPilotAnnotatedCameraWidget::paintRoadName(QPainter &p) {
 
   QFont font = InterFont(40, QFont::DemiBold);
 
-  int textWidth = QFontMetrics(font).horizontalAdvance(roadName);
+  int textWidth = QFontMetrics(font).horizontalAdvance(label);
 
   QSize size(textWidth + 100, 50);
   QRect roadNameRect = QStyle::alignedRect(Qt::LeftToRight, Qt::AlignHCenter | Qt::AlignBottom, size, rect().adjusted(0, 0, 0, -5));
@@ -974,7 +1032,7 @@ void FrogPilotAnnotatedCameraWidget::paintRoadName(QPainter &p) {
 
   p.setFont(font);
   p.setPen(QPen(whiteColor(), 6));
-  p.drawText(roadNameRect, Qt::AlignCenter, roadName);
+  p.drawText(roadNameRect, Qt::AlignCenter, label);
 
   p.restore();
 }

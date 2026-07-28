@@ -144,6 +144,11 @@ struct FrogPilotOnroadEvent @0xa5cd762cd951a455 {
     vCruise69 @26;
     yourFrogTriedToKillMe @27;
     youveGotMail @28;
+
+    # Appended after the random event range on purpose. frogpilot_events.py tests
+    # RANDOM_EVENT_START <= event <= RANDOM_EVENT_END, so anything inserted between
+    # @17 and @28 would be mistaken for a random event.
+    mapHazard @29;
   }
 }
 

@@ -9,6 +9,8 @@ from openpilot.selfdrive.selfdrived.events import ET, EVENT_NAME, FROGPILOT_EVEN
 from openpilot.frogpilot.common.frogpilot_variables import CRUISING_SPEED, NON_DRIVING_GEARS
 
 DEJA_VU_G_FORCE = 0.75
+HAZARD_LOOKAHEAD = 8.0     # s of travel at the set speed
+MIN_HAZARD_DISTANCE = 100  # m, so it still warns in time at low speed
 RANDOM_EVENTS_CHANCE = 0.01 * DT_MDL
 RANDOM_EVENTS_LENGTH = 5
 
@@ -33,6 +35,8 @@ class FrogPilotEvents:
     self.tracked_lead_distance = 0
 
     self.played_events = set()
+
+    self.announced_hazard = ""
 
     self.error_log = error_log
 
@@ -64,6 +68,18 @@ class FrogPilotEvents:
 
     if "holidayActive" not in self.played_events and self.startup_seen and alerts_empty and len(self.events) == 0 and frogpilot_toggles.current_holiday_theme != "stock":
       self.events.add(FrogPilotEventName.holidayActive)
+
+    # Hazards come straight from OSM via mapd. Announce each one once as it comes into
+    # range, keyed on the text so a different hazard on the same stretch still alerts.
+    if frogpilot_toggles.map_hazard_alert:
+      hazard = sm["mapdOut"].nextHazard
+      distance = sm["mapdOut"].nextHazardDistance
+      if hazard and 0 < distance < max(v_cruise * HAZARD_LOOKAHEAD, MIN_HAZARD_DISTANCE):
+        if hazard != self.announced_hazard:
+          self.events.add(FrogPilotEventName.mapHazard)
+          self.announced_hazard = hazard
+      elif not hazard:
+        self.announced_hazard = ""
 
     if self.frogpilot_planner.tracking_lead and sm["carState"].standstill and sm["carState"].gearShifter not in NON_DRIVING_GEARS:
       if self.tracked_lead_distance == 0:

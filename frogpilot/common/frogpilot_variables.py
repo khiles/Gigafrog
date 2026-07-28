@@ -450,6 +450,7 @@ class FrogPilotVariables:
     toggle.goat_scream_alert = self.get_value("GoatScream", condition=custom_alerts)
     toggle.green_light_alert = self.get_value("GreenLightAlert", condition=custom_alerts)
     toggle.lead_departing_alert = self.get_value("LeadDepartingAlert", condition=custom_alerts)
+    toggle.map_hazard_alert = self.get_value("MapHazardAlert", condition=custom_alerts)
     toggle.loud_blindspot_alert = self.get_value("LoudBlindspotAlert", condition=custom_alerts and has_bsm)
     toggle.speed_limit_changed_alert = self.get_value("SpeedLimitChangedAlert", condition=custom_alerts)
 
@@ -638,6 +639,8 @@ class FrogPilotVariables:
 
     navigation_ui = self.get_value("NavigationUI")
     toggle.road_name_ui = self.get_value("RoadNameUI", condition=navigation_ui) or toggle.debug_mode
+    toggle.road_reference_ui = self.get_value("RoadReferenceUI", condition=navigation_ui) or toggle.debug_mode
+    toggle.show_advisory_speed = self.get_value("ShowAdvisorySpeed", condition=navigation_ui) or toggle.debug_mode
     toggle.show_speed_limits = self.get_value("ShowSpeedLimits", condition=navigation_ui) or toggle.debug_mode
     toggle.speed_limit_vienna = self.get_value("UseVienna", condition=navigation_ui)
 
