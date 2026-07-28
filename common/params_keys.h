@@ -320,6 +320,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"NumericalTemp", {PERSISTENT, BOOL, "1", "0", 3}},
     {"ObstacleNudge", {PERSISTENT, BOOL, "0", "0", 3}},
     {"ObstacleNudgeCrossCenterLine", {PERSISTENT, BOOL, "0", "0", 3}},
+    {"ObstacleNudgeDebug", {PERSISTENT, BOOL, "0", "0", 3}},
     {"ObstacleNudgeGain", {PERSISTENT, FLOAT, "1.0", "1.0", 3}},
     // These are stored in the user's display units, so no single default suits both metric
     // and imperial. 0 means "not set" and frogpilot_variables substitutes an SI default.

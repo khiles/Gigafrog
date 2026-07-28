@@ -186,6 +186,11 @@ void FrogPilotAnnotatedCameraWidget::updateState(const UIState &s, const FrogPil
   nudgeOffsetTarget = frogpilotPlan.getNudgeOffsetTarget();
   nudgeSourceLeft = frogpilotPlan.getNudgeSourceLeft();
   nudgeSourceRight = frogpilotPlan.getNudgeSourceRight();
+
+  nudgeDebug = frogpilot_toggles.value("obstacle_nudge_debug").toBool();
+  if (nudgeDebug) {
+    buildNudgeDebug(s, fs);
+  }
   mapboxSpeedLimit = frogpilotPlan.getSlcMapboxSpeedLimit();
   nextSpeedLimit = frogpilotPlan.getSlcNextSpeedLimit();
   redLight = frogpilotPlan.getRedLight();
@@ -922,6 +927,95 @@ void FrogPilotAnnotatedCameraWidget::paintRainbowPath(QPainter &p, QLinearGradie
   p.restore();
 }
 
+// Interpolate a model line's y at a given distance ahead. roadEdges/laneLines are sampled
+// on X_IDXS, which is quadratic out to 192m, so this must interpolate rather than index.
+static float lineYAt(const cereal::XYZTData::Reader &line, float x) {
+  auto xs = line.getX();
+  auto ys = line.getY();
+  if (xs.size() == 0 || ys.size() != xs.size()) {
+    return 0.0f;
+  }
+  for (unsigned int i = 1; i < xs.size(); ++i) {
+    if (x <= xs[i]) {
+      float span = xs[i] - xs[i - 1];
+      float frac = span > 1e-3f ? (x - xs[i - 1]) / span : 0.0f;
+      return ys[i - 1] + frac * (ys[i] - ys[i - 1]);
+    }
+  }
+  return ys[xs.size() - 1];
+}
+
+void FrogPilotAnnotatedCameraWidget::buildNudgeDebug(const UIState &s, const FrogPilotUIState &fs) {
+  const SubMaster &sm = *(s.sm);
+  const SubMaster &fpsm = *(fs.sm);
+
+  const cereal::ModelDataV2::Reader &model = sm["modelV2"].getModelV2();
+  const cereal::FrogPilotRadarState::Reader &radar = fpsm["frogpilotRadarState"].getFrogpilotRadarState();
+  const cereal::FrogPilotPlan::Reader &plan = fpsm["frogpilotPlan"].getFrogpilotPlan();
+
+  nudgeDebugLines.clear();
+
+  // L1 - raw radar, plus the three values the detection gates actually test
+  auto points = fpsm["liveTracks"].getLiveTracks().getPoints();
+  int extended = 0, moving = 0, standing = 0;
+  for (auto point : points) {
+    if (point.getExtended()) extended++;
+    auto state = point.getMovingState();
+    if (state == cereal::RadarData::RadarPoint::MovingState::MOVING) moving++;
+    if (state == cereal::RadarData::RadarPoint::MovingState::STANDING ||
+        state == cereal::RadarData::RadarPoint::MovingState::STOPPED) standing++;
+  }
+  QString line1 = QString("pts=%1 ext=%2 mov=%3 stand=%4")
+                      .arg(int(points.size())).arg(extended).arg(moving).arg(standing);
+  if (points.size() > 0) {
+    auto nearest = points[0];
+    for (auto point : points) {
+      if (point.getDRel() < nearest.getDRel()) nearest = point;
+    }
+    line1 += QString("  near d=%1 y=%2 dZ=%3 pE=%4 pNO=%5")
+                 .arg(QString::number(nearest.getDRel(), 'f', 1), QString::number(nearest.getYRel(), 'f', 2),
+                      QString::number(nearest.getDZ(), 'f', 2), QString::number(nearest.getProbExist(), 'f', 0),
+                      QString::number(nearest.getProbNonObstacle(), 'f', 0));
+  }
+  nudgeDebugLines << line1;
+
+  // L2 - what survived classification
+  auto obstacleLeft = radar.getStaticObstacleLeft();
+  auto obstacleRight = radar.getStaticObstacleRight();
+  nudgeDebugLines << QString("L det=%1 n=%2 clr=%3   R det=%4 n=%5 clr=%6   onc=%7 box=%8")
+                         .arg(int(obstacleLeft.getDetected())).arg(int(obstacleLeft.getCount()))
+                         .arg(QString::number(obstacleLeft.getClearance(), 'f', 2))
+                         .arg(int(obstacleRight.getDetected())).arg(int(obstacleRight.getCount()))
+                         .arg(QString::number(obstacleRight.getClearance(), 'f', 2))
+                         .arg(int(radar.getOncomingDetected())).arg(int(radar.getStaticObstacles().size()));
+
+  // L3 - the vision question: does the near road edge bow inward relative to the far one?
+  if (model.getRoadEdges().size() >= 2 && model.getRoadEdgeStds().size() >= 2) {
+    auto edgeL = model.getRoadEdges()[0];
+    auto edgeR = model.getRoadEdges()[1];
+    nudgeDebugLines << QString("edgeL %1/%2/%3  edgeR %4/%5/%6  std %7/%8")
+                           .arg(QString::number(-lineYAt(edgeL, 4.0f), 'f', 2), QString::number(-lineYAt(edgeL, 12.0f), 'f', 2),
+                                QString::number(-lineYAt(edgeL, 30.0f), 'f', 2), QString::number(lineYAt(edgeR, 4.0f), 'f', 2),
+                                QString::number(lineYAt(edgeR, 12.0f), 'f', 2), QString::number(lineYAt(edgeR, 30.0f), 'f', 2),
+                                QString::number(model.getRoadEdgeStds()[0], 'f', 2), QString::number(model.getRoadEdgeStds()[1], 'f', 2));
+  }
+
+  // L4 - the alternative detector (does the model already plan around obstructions?) and the servo
+  QString planDev = "-";
+  if (model.getLaneLines().size() >= 4 && model.getPosition().getX().size() > 0) {
+    auto lineLeft = model.getLaneLines()[1];
+    auto lineRight = model.getLaneLines()[2];
+    float devNear = lineYAt(model.getPosition(), 10.0f) - (lineYAt(lineLeft, 10.0f) + lineYAt(lineRight, 10.0f)) / 2.0f;
+    float devFar = lineYAt(model.getPosition(), 25.0f) - (lineYAt(lineLeft, 25.0f) + lineYAt(lineRight, 25.0f)) / 2.0f;
+    planDev = QString("%1/%2").arg(QString::number(devNear, 'f', 2), QString::number(devFar, 'f', 2));
+  }
+  nudgeDebugLines << QString("planDev %1  tgt %2 meas %3 a %4  v=%5")
+                         .arg(planDev, QString::number(plan.getNudgeOffsetTarget(), 'f', 2),
+                              QString::number(plan.getNudgeOffsetMeasured(), 'f', 2),
+                              QString::number(plan.getNudgeLateralAccel(), 'f', 2),
+                              QString::number(sm["carState"].getCarState().getVEgo(), 'f', 1));
+}
+
 QString FrogPilotAnnotatedCameraWidget::nudgeSourceText() {
   auto describe = [](int source) {
     return source == 1 ? tr("radar") : source == 2 ? tr("edge") : QString("-");
@@ -956,6 +1050,21 @@ void FrogPilotAnnotatedCameraWidget::paintNudgeStatus(QPainter &p) {
   p.setPen(QPen(blackColor(200), 5));
   p.setBrush(static_obstacles.empty() ? whiteColor(140) : QColor(255, 176, 0, 230));
   p.drawPath(bannerPath);
+
+  if (nudgeDebug && !nudgeDebugLines.isEmpty()) {
+    p.setFont(InterFont(26, QFont::Normal));
+    QFontMetrics debugMetrics(p.font());
+    int debugY = bannerY + debugMetrics.height() + 6;
+
+    for (const QString &line : nudgeDebugLines) {
+      QPainterPath linePath;
+      linePath.addText(rect().center().x() - debugMetrics.horizontalAdvance(line) / 2, debugY, p.font(), line);
+      p.setPen(QPen(blackColor(220), 4));
+      p.setBrush(whiteColor(220));
+      p.drawPath(linePath);
+      debugY += debugMetrics.height();
+    }
+  }
 
   // Keyed off the target alone. The measured value is lane-centre error, which is nonzero
   // whenever the model isn't perfectly centred, so gating on it would flicker constantly.

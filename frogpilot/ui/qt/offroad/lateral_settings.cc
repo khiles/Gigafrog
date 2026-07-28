@@ -65,6 +65,7 @@ FrogPilotLateralPanel::FrogPilotLateralPanel(FrogPilotSettingsWindow *parent, bo
     {"ObstacleNudgeCrossCenterLine", tr("Cross the Center Line"), tr("<b>Allow the nudge to cross the center line when radar detects no oncoming traffic.</b> Requires radar — there is no camera-based source for oncoming traffic. Radar cannot see over crests, around bends, or past the edges of its field of view, so no detection is not proof the road is clear. Use with care."), ""},
     {"ObstacleNudgeMaxCenterLineOvershoot", tr("Maximum Overshoot"), tr("<b>How far past the center line openpilot may go.</b> The road edge always remains a hard limit."), ""},
     {"ObstacleNudgeGain", tr("Response Gain"), tr("<b>How aggressively openpilot moves to the offset it wants.</b> Raise if it undershoots; lower if it feels twitchy or hunts."), ""},
+    {"ObstacleNudgeDebug", tr("Debug Readout"), tr("<b>Show live detection numbers on screen.</b> Raw radar counts, the values the detection gates test, road edge distances at three lookaheads, and which gate is currently blocking the nudge."), ""},
 
     {"LateralTune", tr("Lateral Tuning"), tr("<b>Miscellaneous steering control changes</b> to fine-tune how openpilot drives."), "../../frogpilot/assets/toggle_icons/icon_lateral_tune.png"},
     {"TurnDesires", tr("Force Turn Desires Below Lane Change Speed"), tr("<b>While driving below the minimum lane change speed with an active turn signal, instruct openpilot to turn left/right.</b>"), ""},

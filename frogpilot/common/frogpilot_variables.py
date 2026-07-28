@@ -604,6 +604,7 @@ class FrogPilotVariables:
     # radar: there is no vision source for oncoming traffic, so the gate could never be met.
     toggle.obstacle_nudge = self.get_value("ObstacleNudge")
     toggle.obstacle_nudge_cross_center_line = has_radar and self.get_value("ObstacleNudgeCrossCenterLine", condition=toggle.obstacle_nudge)
+    toggle.obstacle_nudge_debug = self.get_value("ObstacleNudgeDebug", condition=toggle.obstacle_nudge)
     toggle.obstacle_nudge_gain = self.get_value("ObstacleNudgeGain", cast=float, condition=toggle.obstacle_nudge, default=1.0, min=0.25, max=2.0)
 
     # These are stored in the user's display units, so a single registered default can't be

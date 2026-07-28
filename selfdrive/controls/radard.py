@@ -37,6 +37,7 @@ ObjectClass = car.RadarData.RadarPoint.ObjectClass
 STATIC_SPEED_THRESHOLD = 0.8    # m/s, absolute world-frame speed below this is static
 OVERHEAD_DZ = 1.6               # m, above this is a bridge/gantry/overhead sign
 UNDERPASS_DZ = -0.8             # m, below this is a manhole cover or road furniture
+DZ_UNKNOWN = -4.9               # m, dZ is scaled (0.25, -5) so raw zero reads -5.0: unset
 MIN_OBSTACLE_LENGTH = 0.30      # m
 MAX_OBSTACLE_LENGTH = 7.0       # m, the DBC signal saturates at 7.875
 MIN_PROB_EXIST = 50.0           # %
@@ -227,11 +228,19 @@ class Track:
     if not self.measured or self.cnt < 5:
       return False
 
+    # Every gate below is fail-OPEN: it rejects only on a plausibly populated value.
+    # These signals are scaled such that an unpopulated field decodes to a legal-looking
+    # number — dZ is scaled (0.25, -5) so raw zero reads -5.0 m, and probExist is scaled
+    # (3.125, 0) so raw zero reads 0%. Written as fail-closed they discard 100% of tracks
+    # on a radar that doesn't populate them, silently and with no way to tell.
     if self.extended:
-      if self.probExist < MIN_PROB_EXIST or self.probNonObstacle > MAX_PROB_NON_OBSTACLE:
+      if self.probExist > 0.0 and self.probExist < MIN_PROB_EXIST:
         return False
-      # Height gate: reject bridges, gantries, overhead signs and low road furniture
-      if not (UNDERPASS_DZ < self.dZ < OVERHEAD_DZ):
+      if self.probNonObstacle > MAX_PROB_NON_OBSTACLE:
+        return False
+      # Height gate: reject bridges, gantries and overhead signs. dZ at the scale floor
+      # means "not reported", so only an affirmatively high reading disqualifies.
+      if self.dZ > DZ_UNKNOWN and not (UNDERPASS_DZ < self.dZ < OVERHEAD_DZ):
         return False
       # Size gate. Length == 0 means the radar didn't segment it, which isn't disqualifying
       if self.length > 0.0 and not (MIN_OBSTACLE_LENGTH <= self.length <= MAX_OBSTACLE_LENGTH):

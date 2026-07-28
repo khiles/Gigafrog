@@ -119,6 +119,10 @@ private:
 
   QString nudgeSourceText();
 
+  bool nudgeDebug;
+  QStringList nudgeDebugLines;
+  void buildNudgeDebug(const UIState &s, const FrogPilotUIState &fs);
+
   float laneWidthLeft;
   float laneWidthRight;
   float mapSpeedLimit;
