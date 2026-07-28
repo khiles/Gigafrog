@@ -17,6 +17,7 @@ from openpilot.frogpilot.controls.lib.conditional_experimental_mode import Condi
 from openpilot.frogpilot.controls.lib.frogpilot_acceleration import FrogPilotAcceleration
 from openpilot.frogpilot.controls.lib.frogpilot_events import FrogPilotEvents
 from openpilot.frogpilot.controls.lib.frogpilot_following import FrogPilotFollowing
+from openpilot.frogpilot.controls.lib.frogpilot_pose import FrogPilotPose
 from openpilot.frogpilot.controls.lib.frogpilot_vcruise import FrogPilotVCruise
 from openpilot.frogpilot.controls.lib.weather_checker import WeatherChecker
 
@@ -29,6 +30,7 @@ class FrogPilotPlanner:
     self.frogpilot_cem = ConditionalExperimentalMode(self)
     self.frogpilot_events = FrogPilotEvents(self, error_log, ThemeManager)
     self.frogpilot_following = FrogPilotFollowing(self)
+    self.frogpilot_pose = FrogPilotPose()
     self.frogpilot_vcruise = FrogPilotVCruise(self)
     self.frogpilot_weather = WeatherChecker(self)
 
@@ -101,6 +103,8 @@ class FrogPilotPlanner:
 
     self.lateral_acceleration = v_ego**2 * sm["controlsState"].curvature
 
+    self.frogpilot_pose.update(sm["livePose"], v_ego)
+
     self.lateral_check = v_ego >= frogpilot_toggles.pause_lateral_below_speed
     self.lateral_check |= not (sm["carState"].leftBlinker or sm["carState"].rightBlinker) and frogpilot_toggles.pause_lateral_below_signal
     self.lateral_check |= sm["carState"].standstill
@@ -172,6 +176,10 @@ class FrogPilotPlanner:
 
     frogpilotPlan.maxAcceleration = float(self.frogpilot_acceleration.max_accel)
     frogpilotPlan.minAcceleration = float(self.frogpilot_acceleration.min_accel)
+
+    frogpilotPlan.corneringAcceleration = float(self.frogpilot_pose.cornering_acceleration)
+    frogpilotPlan.roadGradient = float(self.frogpilot_pose.road_gradient)
+    frogpilotPlan.roadRoughness = float(self.frogpilot_pose.road_roughness)
 
     frogpilotPlan.redLight = self.frogpilot_cem.stop_light_detected
 

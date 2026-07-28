@@ -204,6 +204,9 @@ DeveloperPanel::DeveloperPanel(SettingsWindow *parent) : QFrame(parent) {
         {14, tr("Longitudinal MPC Jerk: Acceleration")},
         {15, tr("Longitudinal MPC Jerk: Danger Zone")},
         {16, tr("Longitudinal MPC Jerk: Speed Control")},
+        {17, tr("Pose: Cornering Acceleration")},
+        {18, tr("Pose: Road Gradient")},
+        {19, tr("Pose: Road Roughness")},
       };
 
       ButtonControl *metricToggle = new ButtonControl(title, tr("SELECT"), desc);

@@ -188,6 +188,11 @@ struct FrogPilotPlan @0xf98d843bfd7004a3 {
   vCruise @32 :Float32;
   weatherDaytime @33 :Bool;
   weatherId @34 :Int16;
+
+  # Measured from livePose rather than estimated from planner curvature
+  corneringAcceleration @35 :Float32;  # m/s^2, positive = toward the right
+  roadGradient @36 :Float32;           # fraction, positive = climbing
+  roadRoughness @37 :Float32;          # m/s^2 RMS of vertical acceleration
 }
 
 struct FrogPilotRadarState @0xb86e6369214c01c8 {

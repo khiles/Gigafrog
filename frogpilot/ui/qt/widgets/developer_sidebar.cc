@@ -133,6 +133,12 @@ void DeveloperSidebar::updateState(const UIState &s, const FrogPilotUIState &fs)
   stiffnessFactorStatus = ItemStatus(QPair<QString, QString>(tr("STEER STIFF"), QString::number(liveParameters.getStiffnessFactor(), 'f', 5)), metricColor);
   torqueStatus = ItemStatus(QPair<QString, QString>(tr("TORQUE %"), torqueLabel), metricColor);
 
+  // Measured from livePose. Cornering is the centripetal term (yaw rate x speed), not
+  // accelerationDevice.y, which excludes it — see frogpilot_pose.py.
+  corneringAccelerationStatus = ItemStatus(QPair<QString, QString>(tr("CORNER G"), QString::number(frogpilotPlan.getCorneringAcceleration() * accelerationConversion, 'f', 2) + accelerationUnit), metricColor);
+  roadGradientStatus = ItemStatus(QPair<QString, QString>(tr("GRADIENT"), QString::number(frogpilotPlan.getRoadGradient() * 100.0f, 'f', 1) + "%"), metricColor);
+  roadRoughnessStatus = ItemStatus(QPair<QString, QString>(tr("ROUGHNESS"), QString::number(frogpilotPlan.getRoadRoughness(), 'f', 2)), metricColor);
+
   update();
 }
 
@@ -160,6 +166,9 @@ void DeveloperSidebar::paintEvent(QPaintEvent *event) {
   metricMap.insert(14, &accelerationJerkStatus);
   metricMap.insert(15, &dangerJerkStatus);
   metricMap.insert(16, &speedJerkStatus);
+  metricMap.insert(17, &corneringAccelerationStatus);
+  metricMap.insert(18, &roadGradientStatus);
+  metricMap.insert(19, &roadRoughnessStatus);
 
   int count = 0;
   for (size_t i = 0; i < metricAssignments.size(); ++i) {

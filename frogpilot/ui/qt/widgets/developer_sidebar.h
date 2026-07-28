@@ -26,6 +26,7 @@ private:
   QColor metricColor;
 
   ItemStatus accelerationJerkStatus;
+  ItemStatus corneringAccelerationStatus;
   ItemStatus accelerationStatus;
   ItemStatus actuatorAccelerationStatus;
   ItemStatus dangerFactorStatus;
@@ -36,6 +37,8 @@ private:
   ItemStatus lateralEngagementStatus;
   ItemStatus longitudinalEngagementStatus;
   ItemStatus maxAccelerationStatus;
+  ItemStatus roadGradientStatus;
+  ItemStatus roadRoughnessStatus;
   ItemStatus speedJerkStatus;
   ItemStatus steerAngleStatus;
   ItemStatus steerRatioStatus;

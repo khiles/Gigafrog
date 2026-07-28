@@ -16,6 +16,7 @@ class FrogPilotTracking:
     self.params = frogpilot_planner.params
 
     self.frogpilot_events = frogpilot_planner.frogpilot_events
+    self.frogpilot_pose = frogpilot_planner.frogpilot_pose
     self.frogpilot_weather = frogpilot_planner.frogpilot_weather
 
     self.frogpilot_stats = self.params.get("FrogPilotStats")
@@ -93,6 +94,15 @@ class FrogPilotTracking:
       self.previous_sound = sm["frogpilotSelfdriveState"].alertSound
 
     self.frogpilot_stats["MaxAcceleration"] = max(self.frogpilot_events.max_acceleration, self.frogpilot_stats.get("MaxAcceleration", 0))
+
+    # Measured from livePose rather than estimated from planner curvature
+    self.frogpilot_stats["MaxCorneringAcceleration"] = max(abs(self.frogpilot_pose.cornering_acceleration),
+                                                           self.frogpilot_stats.get("MaxCorneringAcceleration", 0))
+    self.frogpilot_stats["MaxRoadRoughness"] = max(self.frogpilot_pose.road_roughness,
+                                                   self.frogpilot_stats.get("MaxRoadRoughness", 0))
+    if self.frogpilot_pose.road_gradient > 0:
+      self.frogpilot_stats["MetersClimbed"] = self.frogpilot_stats.get("MetersClimbed", 0) + \
+                                              self.frogpilot_pose.road_gradient * sm["carState"].vEgo * DT_MDL
 
     if sm["carControl"].latActive:
       self.frogpilot_stats["LateralTime"] = self.frogpilot_stats.get("LateralTime", 0) + DT_MDL
