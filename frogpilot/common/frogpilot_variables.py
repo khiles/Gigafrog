@@ -33,7 +33,6 @@ CRUISING_SPEED = 5                        # Roughly the speed cars go when not t
 DEFAULT_LATERAL_ACCELERATION = 2.0        # m/s^2, typical lateral acceleration when taking curves
 DISPLAY_MENU_TIMER = 350                  # The length of time the following distance menu appears on some GM vehicles to prevent things getting out of sync
 EARTH_RADIUS = 6378137                    # Radius of the Earth in meters
-EGO_HALF_WIDTH = 1.05                     # m, half the ego body width including mirrors. CarParams has no width field
 MAX_ACCELERATION = 4.0                    # ISO 15622:2018
 MAX_T_FOLLOW = 3.0                        # Maximum allowed following duration. Larger values risk losing track of the lead but may be increased as models improve
 MINIMUM_LATERAL_ACCELERATION = 1.3        # m/s^2, typical minimum lateral acceleration when taking curves
@@ -599,37 +598,6 @@ class FrogPilotVariables:
     toggle.minimum_lane_change_speed = self.get_value("MinimumLaneChangeSpeed", cast=float, condition=toggle.lane_changes, conversion=speed_conversion)
     toggle.nudgeless = self.get_value("NudgelessLaneChange", condition=toggle.lane_changes)
     toggle.one_lane_change = self.get_value("OneLaneChange", condition=toggle.lane_changes)
-
-    # Runs without radar off the road-edge fallback, but crossing the centre line requires
-    # radar: there is no vision source for oncoming traffic, so the gate could never be met.
-    toggle.obstacle_nudge = self.get_value("ObstacleNudge")
-    toggle.obstacle_nudge_cross_center_line = has_radar and self.get_value("ObstacleNudgeCrossCenterLine", condition=toggle.obstacle_nudge)
-    toggle.obstacle_nudge_debug = self.get_value("ObstacleNudgeDebug", condition=toggle.obstacle_nudge)
-    toggle.obstacle_nudge_gain = self.get_value("ObstacleNudgeGain", cast=float, condition=toggle.obstacle_nudge, default=1.0, min=0.25, max=2.0)
-
-    # These are stored in the user's display units, so a single registered default can't be
-    # right for both metric and imperial — 30 means 30 m to one and 30 ft to the other. 0
-    # means "never set" and falls straight through to the SI default instead of being
-    # converted, which is what keeps the feature usable out of the box either way.
-    def nudge_setting(key, si_default, conversion, lower, upper, condition=toggle.obstacle_nudge):
-      value = self.get_value(key, cast=float, condition=condition, default=0.0)
-      if not value:
-        return si_default if condition else 0.0
-      value *= conversion
-      return lower if value < lower else upper if value > upper else value
-
-    toggle.obstacle_nudge_max_center_line_overshoot = nudge_setting("ObstacleNudgeMaxCenterLineOvershoot", 0.3, distance_conversion, 0.0, 0.6,
-                                                                   toggle.obstacle_nudge_cross_center_line)
-    toggle.obstacle_nudge_max_offset = nudge_setting("ObstacleNudgeMaxOffset", 0.5, distance_conversion, 0.1, 1.0)
-    toggle.obstacle_nudge_max_speed = nudge_setting("ObstacleNudgeMaxSpeed", 20.0, speed_conversion, 1.0, 40.0)
-    toggle.obstacle_nudge_min_clearance = nudge_setting("ObstacleNudgeMinClearance", 1.0, distance_conversion, 0.3, 2.0)
-    toggle.obstacle_nudge_min_speed = nudge_setting("ObstacleNudgeMinSpeed", 4.5, speed_conversion, 0.0, 25.0)
-    toggle.obstacle_nudge_trigger_distance = nudge_setting("ObstacleNudgeTriggerDistance", 30.0, distance_conversion, 5.0, 60.0)
-
-    # Driver on the right means we're in a left-hand-traffic country, which mirrors which
-    # side the centre line and oncoming traffic are on. dmonitoringd calibrates and persists
-    # this from the driver camera.
-    toggle.left_hand_traffic = self.params.get_bool("IsRhdDetected")
 
     lateral_tuning = self.get_value("LateralTune")
     toggle.force_torque_controller = self.get_value("ForceTorqueController", condition=lateral_tuning and not is_torque_car and not is_angle_car)

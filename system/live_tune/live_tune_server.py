@@ -73,10 +73,6 @@ PARAMS: dict[str, dict] = {
   'TurnDesires':               _p('Turn Desires',                   'lateral', B, 'Use turn desires for better low-speed cornering',      False),
   'ForceTorqueController':     _p('Force Torque Controller',        'lateral', B, 'Force torque controller even on unsupported cars',     False),
   'CalibratedLateralAcceleration': _p('Calibrated Lat Accel',      'lateral', F, 'Max lateral acceleration used during calibration',     2.0, min=1.0, max=3.0, step=0.1),
-  'ObstacleNudge':             _p('Parked Car Avoidance',           'lateral', B, 'Steer away from parked cars and roadside objects',     False),
-  'ObstacleNudgeGain':         _p('Nudge Response Gain',            'lateral', F, 'Raise if the nudge undershoots, lower if it hunts',    1.0, min=0.25, max=2.0, step=0.05),
-  'ObstacleNudgeMinClearance': _p('Nudge Min Clearance (ft)',       'lateral', F, 'Room to leave beside a detected roadside object',      3.3, min=1.0, max=6.5, step=0.1),
-  'ObstacleNudgeMaxOffset':    _p('Nudge Max Offset (ft)',          'lateral', F, 'Furthest the path will be shifted sideways',           1.6, min=0.3, max=3.3, step=0.1),
 
   # ── Longitudinal ──────────────────────────────────────────────────────────
   'LongitudinalTune':          _p('Longitudinal Tune',              'longitudinal', B, 'Enable FrogPilot longitudinal tuning improvements', True),

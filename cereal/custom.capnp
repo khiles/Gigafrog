@@ -183,16 +183,6 @@ struct FrogPilotPlan @0xf98d843bfd7004a3 {
   vCruise @32 :Float32;
   weatherDaytime @33 :Bool;
   weatherId @34 :Int16;
-
-  # Obstacle nudge. Lateral acceleration rather than curvature, so controlsd converts it
-  # with the live vEgo at 100Hz instead of consuming a stale 20Hz curvature under braking.
-  nudgeLateralAccel @35 :Float32;    # m/s^2, positive = commanded toward the right
-  nudgeOffsetTarget @36 :Float32;    # m, positive = right
-  nudgeOffsetMeasured @37 :Float32;  # m, positive = right
-  nudgeCrossingCenterLine @38 :Bool;
-  # What each side's clearance came from: 0 nothing, 1 radar, 2 road edge (vision)
-  nudgeSourceLeft @39 :UInt8;
-  nudgeSourceRight @40 :UInt8;
 }
 
 struct FrogPilotRadarState @0xb86e6369214c01c8 {
@@ -201,22 +191,6 @@ struct FrogPilotRadarState @0xb86e6369214c01c8 {
   # Software-synthesised BSM for vehicles without OEM hardware sensors
   softwareBsmLeft @2 :Bool;
   softwareBsmRight @3 :Bool;
-
-  # Confirmed stationary roadside objects (parked cars, bins, bollards) beside the
-  # predicted path, and whether any oncoming traffic is currently latched.
-  staticObstacleLeft @4 :StaticObstacle;
-  staticObstacleRight @5 :StaticObstacle;
-  oncomingDetected @6 :Bool;
-  # Every confirmed static object, for the HUD to box. The two above are the worst per side.
-  staticObstacles @7 :List(StaticObstacle);
-
-  struct StaticObstacle {
-    detected @0 :Bool;
-    dRel @1 :Float32;
-    yRel @2 :Float32;       # m, left-positive to match LeadData
-    clearance @3 :Float32;  # m from the ego body edge, measured off the predicted path
-    count @4 :UInt8;        # confirmed static objects on this side, i.e. a row of parked cars
-  }
 
   struct LeadData {
     dRel @0 :Float32;

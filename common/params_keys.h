@@ -318,18 +318,6 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"NoUploads", {PERSISTENT, BOOL, "0", "0", 2}},
     {"NudgelessLaneChange", {PERSISTENT, BOOL, "1", "0", 0}},
     {"NumericalTemp", {PERSISTENT, BOOL, "1", "0", 3}},
-    {"ObstacleNudge", {PERSISTENT, BOOL, "0", "0", 3}},
-    {"ObstacleNudgeCrossCenterLine", {PERSISTENT, BOOL, "0", "0", 3}},
-    {"ObstacleNudgeDebug", {PERSISTENT, BOOL, "0", "0", 3}},
-    {"ObstacleNudgeGain", {PERSISTENT, FLOAT, "1.0", "1.0", 3}},
-    // These are stored in the user's display units, so no single default suits both metric
-    // and imperial. 0 means "not set" and frogpilot_variables substitutes an SI default.
-    {"ObstacleNudgeMaxCenterLineOvershoot", {PERSISTENT, FLOAT, "0.0", "0.0", 3}},
-    {"ObstacleNudgeMaxOffset", {PERSISTENT, FLOAT, "0.0", "0.0", 3}},
-    {"ObstacleNudgeMaxSpeed", {PERSISTENT, INT, "0", "0", 3}},
-    {"ObstacleNudgeMinClearance", {PERSISTENT, FLOAT, "0.0", "0.0", 3}},
-    {"ObstacleNudgeMinSpeed", {PERSISTENT, INT, "0", "0", 3}},
-    {"ObstacleNudgeTriggerDistance", {PERSISTENT, INT, "0", "0", 3}},
     {"Offset1", {PERSISTENT, FLOAT, "5.0", "0.0", 0}},
     {"Offset2", {PERSISTENT, FLOAT, "5.0", "0.0", 0}},
     {"Offset3", {PERSISTENT, FLOAT, "5.0", "0.0", 0}},

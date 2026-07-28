@@ -14,7 +14,7 @@ from openpilot.common.swaglog import cloudlog
 from openpilot.common.simple_kalman import KF1D
 from openpilot.selfdrive.controls.lib.desire_helper import LaneChangeDirection, LaneChangeState
 
-from openpilot.frogpilot.common.frogpilot_variables import EGO_HALF_WIDTH, THRESHOLD, get_frogpilot_toggles
+from openpilot.frogpilot.common.frogpilot_variables import THRESHOLD, get_frogpilot_toggles
 
 
 # Default lead acceleration decay set to 50% at 1s
@@ -28,30 +28,6 @@ V_EGO_STATIONARY = 4.   # no stationary object flag below this speed
 
 RADAR_TO_CENTER = 2.7   # (deprecated) RADAR is ~ 2.7m ahead from center of car
 RADAR_TO_CAMERA = 1.52  # RADAR is ~ 1.5m ahead from center of mesh frame
-
-# FrogPilot variables
-MovingState = car.RadarData.RadarPoint.MovingState
-ObjectClass = car.RadarData.RadarPoint.ObjectClass
-
-# Static roadside obstacle qualification
-STATIC_SPEED_THRESHOLD = 0.8    # m/s, absolute world-frame speed below this is static
-OVERHEAD_DZ = 1.6               # m, above this is a bridge/gantry/overhead sign
-UNDERPASS_DZ = -0.8             # m, below this is a manhole cover or road furniture
-DZ_UNKNOWN = -4.9               # m, dZ is scaled (0.25, -5) so raw zero reads -5.0: unset
-MIN_OBSTACLE_LENGTH = 0.30      # m
-MAX_OBSTACLE_LENGTH = 7.0       # m, the DBC signal saturates at 7.875
-MIN_PROB_EXIST = 50.0           # %
-MAX_PROB_NON_OBSTACLE = 50.0    # %
-MIN_STATIC_DREL = 1.0           # m
-MAX_DRAWN_OBSTACLES = 12        # cap on the list published for the HUD
-
-# Oncoming traffic qualification
-ONCOMING_SPEED_THRESHOLD = -2.5  # m/s world-frame; more negative means travelling toward us
-ONCOMING_MAX_TTC = 6.0           # s
-ONCOMING_MIN_LATERAL = 0.5       # m left of the predicted path before it counts as oncoming
-ONCOMING_MIN_DREL = 2.0          # m
-ONCOMING_MAX_DREL = 120.0        # m
-ONCOMING_LATCH_S = 4.0           # s hold after the last sighting
 
 
 class KalmanParams:
@@ -94,29 +70,13 @@ class Track:
 
     self.radarfulFilter = FirstOrderFilter(0, 1, self.K_A[0][1])
 
-    # Extended radar attributes, only meaningful when self.extended is True
-    self.extended = False
-    self.movingState = MovingState.indeterminate
-    self.objectClass = ObjectClass.unknown
-    self.length = 0.0
-    self.dZ = 0.0
-    self.probExist = 0.0
-    self.probNonObstacle = 0.0
-
-    self.staticFilter = FirstOrderFilter(0.0, 0.5, DT_MDL)
-
-  def update(self, d_rel: float, y_rel: float, v_rel: float, v_lead: float, measured: float, ext=None):
+  def update(self, d_rel: float, y_rel: float, v_rel: float, v_lead: float, measured: float):
     # relative values, copy
     self.dRel = d_rel   # LONG_DIST
     self.yRel = y_rel   # -LAT_DIST
     self.vRel = v_rel   # REL_SPEED
     self.vLead = v_lead
     self.measured = measured   # measured or estimate
-
-    # Copy the extended attributes out as plain scalars — the capnp reader's buffer is recycled
-    if ext is not None:
-      (self.extended, self.movingState, self.objectClass,
-       self.length, self.dZ, self.probExist, self.probNonObstacle) = ext
 
     # computed velocity and accelerations
     if self.cnt > 0:
@@ -201,86 +161,6 @@ class Track:
       return self.leadLeft
     else:
       return self.leadRight
-
-  def path_lateral(self, model_data: capnp._DynamicStructReader) -> float:
-    """Signed lateral offset of this track from the predicted ego path, in metres.
-
-    Measured against the *path* rather than the car centreline so the result stays
-    correct through curves. Returned in the model/calibrated frame, where positive is
-    right — ``yRel`` is left-positive, hence the negation.
-    """
-    y_obj = -self.yRel
-    y_path = float(np.interp(self.dRel, model_data.position.x, model_data.position.y))
-    return y_obj - y_path
-
-  def path_clearance(self, model_data: capnp._DynamicStructReader) -> float:
-    """Lateral gap in metres between the ego body edge and this track."""
-    return abs(self.path_lateral(model_data)) - EGO_HALF_WIDTH
-
-  def is_static_obstacle(self) -> bool:
-    """True when this track is a confirmed stationary roadside object.
-
-    Parked cars, wheelie bins, bollards, stopped cyclists. Radars that report
-    ``movingState`` (currently only the Tesla Continental) are authoritative; everything
-    else defaults to ``indeterminate`` and falls through to the speed test, so no
-    per-brand check is needed here.
-    """
-    if not self.measured or self.cnt < 5:
-      return False
-
-    # Every gate below is fail-OPEN: it rejects only on a plausibly populated value.
-    # These signals are scaled such that an unpopulated field decodes to a legal-looking
-    # number — dZ is scaled (0.25, -5) so raw zero reads -5.0 m, and probExist is scaled
-    # (3.125, 0) so raw zero reads 0%. Written as fail-closed they discard 100% of tracks
-    # on a radar that doesn't populate them, silently and with no way to tell.
-    if self.extended:
-      if self.probExist > 0.0 and self.probExist < MIN_PROB_EXIST:
-        return False
-      if self.probNonObstacle > MAX_PROB_NON_OBSTACLE:
-        return False
-      # Height gate: reject bridges, gantries and overhead signs. dZ at the scale floor
-      # means "not reported", so only an affirmatively high reading disqualifies.
-      if self.dZ > DZ_UNKNOWN and not (UNDERPASS_DZ < self.dZ < OVERHEAD_DZ):
-        return False
-      # Size gate. Length == 0 means the radar didn't segment it, which isn't disqualifying
-      if self.length > 0.0 and not (MIN_OBSTACLE_LENGTH <= self.length <= MAX_OBSTACLE_LENGTH):
-        return False
-
-    if self.movingState in (MovingState.standing, MovingState.stopped):
-      return True
-    if self.movingState == MovingState.moving:
-      return False
-    return abs(self.vLeadK) < STATIC_SPEED_THRESHOLD
-
-  def is_oncoming(self, model_data: capnp._DynamicStructReader, left_hand_traffic: bool = False) -> bool:
-    """True when this track is traffic approaching us in the oncoming lane.
-
-    Which side that is depends on the country: oncoming is on the left under right-hand
-    traffic and on the right under left-hand traffic (UK, Ireland, Japan, Australia).
-
-    ``vLeadK`` is world-frame absolute speed, so an approaching vehicle reads negative.
-    Class is only used to exclude pedestrians — a motorcycle closing at 15 m/s must count.
-    """
-    if self.movingState in (MovingState.standing, MovingState.stopped):
-      return False
-    if self.movingState != MovingState.moving and abs(self.vLeadK) <= STATIC_SPEED_THRESHOLD:
-      return False
-    if self.vLeadK > ONCOMING_SPEED_THRESHOLD:
-      return False
-    if self.objectClass == ObjectClass.pedestrian:
-      return False
-    if not (ONCOMING_MIN_DREL < self.dRel < ONCOMING_MAX_DREL):
-      return False
-
-    # path_lateral is right-positive, so oncoming sits positive under left-hand traffic
-    lateral = self.path_lateral(model_data)
-    if left_hand_traffic:
-      if lateral < ONCOMING_MIN_LATERAL:
-        return False
-    elif lateral > -ONCOMING_MIN_LATERAL:
-      return False
-
-    return self.dRel / max(-self.vRel, 0.1) < ONCOMING_MAX_TTC
 
   def potential_far_lead(self, lead_msg: capnp._DynamicStructReader, model_data: capnp._DynamicStructReader):
     left_lane = np.interp(self.dRel, model_data.laneLines[1].x, model_data.laneLines[1].y)
@@ -407,60 +287,6 @@ def get_adjacent_lead(tracks: dict[int, Track], model_data: capnp._DynamicStruct
   return lead_dict
 
 
-def get_static_obstacles(tracks: dict[int, Track], model_data: capnp._DynamicStructReader,
-                         trigger_distance: float) -> list[dict[str, Any]]:
-  """Every confirmed static object in the window, nearest first, for the HUD to box."""
-  model_length = model_data.position.x[-1] if len(model_data.position.x) else 0.0
-
-  confirmed = [t for t in tracks.values()
-               if t.staticFilter.x >= THRESHOLD
-               and MIN_STATIC_DREL < t.dRel < min(trigger_distance, model_length)]
-
-  return [{
-    'detected': True,
-    'dRel': float(t.dRel),
-    'yRel': float(t.yRel),
-    'clearance': float(t.path_clearance(model_data)),
-    'count': 1,
-  } for t in sorted(confirmed, key=lambda c: c.dRel)[:MAX_DRAWN_OBSTACLES]]
-
-
-def get_static_obstacle(tracks: dict[int, Track], model_data: capnp._DynamicStructReader,
-                        trigger_distance: float, left: bool = True) -> dict[str, Any]:
-  """Summarise the confirmed static objects on one side of the predicted path.
-
-  Reports the *worst* object rather than the nearest: the threat is whichever one pinches
-  the path hardest, which is not necessarily the closest. ``count`` lets the planner tell
-  a single wheelie bin apart from a continuous row of parked cars.
-  """
-  obstacle = {'detected': False, 'count': 0}
-
-  model_length = model_data.position.x[-1] if len(model_data.position.x) else 0.0
-
-  candidates = []
-  for track in tracks.values():
-    if track.staticFilter.x < THRESHOLD:
-      continue
-    if not (MIN_STATIC_DREL < track.dRel < min(trigger_distance, model_length)):
-      continue
-    # path_lateral is right-positive, so a left-side object sits at a negative value
-    if (track.path_lateral(model_data) < 0.0) != left:
-      continue
-    candidates.append(track)
-
-  if candidates:
-    worst = min(candidates, key=lambda c: c.path_clearance(model_data))
-    obstacle = {
-      'detected': True,
-      'dRel': float(worst.dRel),
-      'yRel': float(worst.yRel),
-      'clearance': float(worst.path_clearance(model_data)),
-      'count': min(len(candidates), 255),
-    }
-
-  return obstacle
-
-
 class RadarD:
   def __init__(self, delay: float = 0.0):
     self.current_time = 0.0
@@ -480,8 +306,6 @@ class RadarD:
     # FrogPilot variables
     self.frogpilot_radar_state = custom.FrogPilotRadarState.new_message()
 
-    self.oncoming_hold_t = 0.0
-
     self.frogpilot_toggles = get_frogpilot_toggles()
 
   def update(self, sm: messaging.SubMaster, rr: car.RadarData):
@@ -493,10 +317,7 @@ class RadarD:
       self.v_ego_hist.append(self.v_ego)
       self.last_v_ego_frame = sm.recv_frame['carState']
 
-    ar_pts = {pt.trackId: [pt.dRel, pt.yRel, pt.vRel, pt.measured,
-                           (pt.extended, pt.movingState, pt.objectClass,
-                            pt.length, pt.dZ, pt.probExist, pt.probNonObstacle)]
-              for pt in rr.points}
+    ar_pts = {pt.trackId: [pt.dRel, pt.yRel, pt.vRel, pt.measured] for pt in rr.points}
 
     # *** remove missing points from meta data ***
     for ids in list(self.tracks.keys()):
@@ -513,7 +334,7 @@ class RadarD:
       # create the track if it doesn't exist or it's a new track
       if ids not in self.tracks:
         self.tracks[ids] = Track(ids, v_lead, self.kalman_params)
-      self.tracks[ids].update(rpt[0], rpt[1], rpt[2], v_lead, rpt[3], rpt[4])
+      self.tracks[ids].update(rpt[0], rpt[1], rpt[2], v_lead, rpt[3])
 
     # *** publish radarState ***
     self.radar_state_valid = sm.all_checks()
@@ -545,34 +366,6 @@ class RadarD:
       self.frogpilot_radar_state.softwareBsmRight = any(
         t.potential_blindspot(left=False) for t in self.tracks.values()
       )
-
-    # Static roadside obstacles and oncoming traffic for the obstacle nudge
-    if self.ready and self.frogpilot_toggles.obstacle_nudge and len(sm['modelV2'].position.x):
-      model_data = sm['modelV2']
-
-      for track in self.tracks.values():
-        track.staticFilter.update(1.0 if track.is_static_obstacle() else 0.0)
-
-      trigger_distance = self.frogpilot_toggles.obstacle_nudge_trigger_distance
-      self.frogpilot_radar_state.staticObstacleLeft = get_static_obstacle(self.tracks, model_data, trigger_distance, left=True)
-      self.frogpilot_radar_state.staticObstacleRight = get_static_obstacle(self.tracks, model_data, trigger_distance, left=False)
-      self.frogpilot_radar_state.staticObstacles = get_static_obstacles(self.tracks, model_data, trigger_distance)
-
-      # Max-hold latch. It only ever extends "occupied", so a few dropped radar frames
-      # can never unlatch it — flicker-proof in the direction that matters.
-      left_hand_traffic = self.frogpilot_toggles.left_hand_traffic
-      if any(t.is_oncoming(model_data, left_hand_traffic) for t in self.tracks.values()):
-        self.oncoming_hold_t = ONCOMING_LATCH_S
-      else:
-        self.oncoming_hold_t = max(0.0, self.oncoming_hold_t - DT_MDL)
-      self.frogpilot_radar_state.oncomingDetected = self.oncoming_hold_t > 0.0
-    else:
-      # The message is reused every cycle, so clear it rather than leaving stale detections
-      self.oncoming_hold_t = 0.0
-      self.frogpilot_radar_state.staticObstacleLeft = {'detected': False, 'count': 0}
-      self.frogpilot_radar_state.staticObstacleRight = {'detected': False, 'count': 0}
-      self.frogpilot_radar_state.staticObstacles = []
-      self.frogpilot_radar_state.oncomingDetected = False
 
     self.frogpilot_toggles = get_frogpilot_toggles(sm)
 

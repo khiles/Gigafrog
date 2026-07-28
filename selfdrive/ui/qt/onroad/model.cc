@@ -2,9 +2,6 @@
 
 constexpr int CLIP_MARGIN = 500;
 
-// Half the assumed width of a static roadside object, for drawing its box
-constexpr float OBSTACLE_HALF_WIDTH = 0.9f;
-
 static int get_path_length_idx(const cereal::XYZTData::Reader &line, const float path_height) {
   const auto &line_x = line.getX();
   int max_idx = 0;
@@ -82,12 +79,6 @@ void ModelRenderer::draw(QPainter &painter, const QRect &surface_rect) {
   // FrogPilot variables
   if (frogpilot_toggles.value("radar_tracks").toBool()) {
     updateRadarTracks(model.getPosition());
-  }
-
-  if (frogpilot_toggles.value("obstacle_nudge").toBool()) {
-    updateStaticObstacles(model.getPosition());
-  } else {
-    frogpilot_nvg->static_obstacles.clear();
   }
 
   painter.restore();
@@ -389,40 +380,6 @@ void ModelRenderer::updateAdjacentLeads(const cereal::FrogPilotRadarState::Reade
       float z = line.getZ()[get_path_length_idx(line, lead_data.getDRel())];
       mapToScreen(lead_data.getDRel(), -lead_data.getYRel(), z + path_offset_z, &adjacent_lead_vertices[i]);
     }
-  }
-}
-
-void ModelRenderer::updateStaticObstacles(const cereal::XYZTData::Reader &line) {
-  std::vector<QRectF> &boxes = frogpilot_nvg->static_obstacles;
-  boxes.clear();
-
-  SubMaster &fpsm = *(frogpilotUIState()->sm);
-  auto obstacles = fpsm["frogpilotRadarState"].getFrogpilotRadarState().getStaticObstacles();
-  boxes.reserve(obstacles.size());
-
-  capnp::List<float>::Reader line_z = line.getZ();
-
-  for (auto obstacle : obstacles) {
-    float d_rel = obstacle.getDRel();
-    float y = -obstacle.getYRel();
-    float z = line_z[get_path_length_idx(line, d_rel)] + path_offset_z;
-
-    // Project the two lateral extents at the object's depth. Deriving the height from the
-    // projected width keeps this clear of the calibrated frame's z sign and still scales
-    // correctly with distance.
-    QPointF left_edge, right_edge;
-    if (!mapToScreen(d_rel, y - OBSTACLE_HALF_WIDTH, z, &left_edge) ||
-        !mapToScreen(d_rel, y + OBSTACLE_HALF_WIDTH, z, &right_edge)) {
-      continue;
-    }
-
-    float width = std::abs(right_edge.x() - left_edge.x());
-    if (width < 4.0f) {
-      continue;
-    }
-    float height = width * 0.8f;
-    float x = std::min(left_edge.x(), right_edge.x());
-    boxes.emplace_back(x, left_edge.y() - height, width, height);
   }
 }
 

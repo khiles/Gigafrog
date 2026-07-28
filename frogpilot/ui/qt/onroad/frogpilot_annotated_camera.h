@@ -33,9 +33,6 @@ public:
   // .second classifies the point for colouring: 0 generic, 1 static obstacle, 2 approaching
   std::vector<std::pair<QPointF, uint8_t>> radar_tracks;
 
-  // Screen-space boxes around confirmed static roadside objects
-  std::vector<QRectF> static_obstacles;
-
   FrogPilotUIScene frogpilot_scene;
 
   QColor blueColor(int alpha = 255) { return QColor(0, 0, 255, alpha); }
@@ -71,7 +68,6 @@ private:
   void paintLongitudinalPaused(QPainter &p);
   void paintPedalIcons(QPainter &p);
   void paintPendingSpeedLimit(QPainter &p);
-  void paintNudgeStatus(QPainter &p);
   void paintRadarTracks(QPainter &p);
   void paintRoadName(QPainter &p);
   void paintSpeedLimit(QPainter &p);
@@ -111,18 +107,6 @@ private:
   float cscSpeed;
   float dashboardSpeedLimit;
   float distanceConversion;
-  bool nudgeCrossingCenterLine;
-  float nudgeOffsetMeasured;
-  float nudgeOffsetTarget;
-  int nudgeSourceLeft;
-  int nudgeSourceRight;
-
-  QString nudgeSourceText();
-
-  bool nudgeDebug;
-  QStringList nudgeDebugLines;
-  void buildNudgeDebug(const UIState &s, const FrogPilotUIState &fs);
-
   float laneWidthLeft;
   float laneWidthRight;
   float mapSpeedLimit;

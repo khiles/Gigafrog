@@ -16,21 +16,18 @@ FrogPilotLateralPanel::FrogPilotLateralPanel(FrogPilotSettingsWindow *parent, bo
   FrogPilotListWidget *aolList = new FrogPilotListWidget(this);
   FrogPilotListWidget *laneChangeList = new FrogPilotListWidget(this);
   FrogPilotListWidget *lateralTuneList = new FrogPilotListWidget(this);
-  FrogPilotListWidget *obstacleNudgeList = new FrogPilotListWidget(this);
   FrogPilotListWidget *qolList = new FrogPilotListWidget(this);
 
   ScrollView *advancedLateralTunePanel = new ScrollView(advancedLateralTuneList, this);
   ScrollView *aolPanel = new ScrollView(aolList, this);
   ScrollView *laneChangePanel = new ScrollView(laneChangeList, this);
   ScrollView *lateralTunePanel = new ScrollView(lateralTuneList, this);
-  ScrollView *obstacleNudgePanel = new ScrollView(obstacleNudgeList, this);
   ScrollView *qolPanel = new ScrollView(qolList, this);
 
   lateralLayout->addWidget(advancedLateralTunePanel);
   lateralLayout->addWidget(aolPanel);
   lateralLayout->addWidget(laneChangePanel);
   lateralLayout->addWidget(lateralTunePanel);
-  lateralLayout->addWidget(obstacleNudgePanel);
   lateralLayout->addWidget(qolPanel);
 
   const std::vector<std::tuple<QString, QString, QString, QString>> lateralToggles {
@@ -55,17 +52,6 @@ FrogPilotLateralPanel::FrogPilotLateralPanel(FrogPilotSettingsWindow *parent, bo
     {"MinimumLaneChangeSpeed", tr("Minimum Lane Change Speed"), tr("<b>Lowest speed at which openpilot will change lanes.</b>"), ""},
     {"LaneDetectionWidth", tr("Minimum Lane Width"), tr("<b>Prevent automatic lane changes into lanes narrower than the set width.</b>"), ""},
     {"OneLaneChange", tr("One Lane Change Per Signal"), tr("<b>Limit automatic lane changes to one per turn-signal activation.</b>"), ""},
-
-    {"ObstacleNudge", tr("Parked Car Avoidance"), tr("<b>Steer away from parked cars and other static roadside objects.</b> Uses radar where the car has it, and falls back to the road edge from the camera where it doesn't. Detected objects are boxed on screen. The nudge stays within the lane unless \"Cross the Center Line\" is enabled."), "../../frogpilot/assets/toggle_icons/icon_lane.png"},
-    {"ObstacleNudgeMinClearance", tr("Minimum Clearance"), tr("<b>How much room to leave between the side of your car and a detected roadside object.</b> openpilot starts shifting over when it can't achieve this."), ""},
-    {"ObstacleNudgeMaxOffset", tr("Maximum Offset"), tr("<b>The furthest openpilot will shift the path sideways.</b> Always additionally limited by the lane lines and road edges."), ""},
-    {"ObstacleNudgeTriggerDistance", tr("Detection Distance"), tr("<b>How far ahead openpilot looks for static roadside objects.</b>"), ""},
-    {"ObstacleNudgeMinSpeed", tr("Minimum Speed"), tr("<b>Lowest speed at which openpilot will nudge away from objects.</b>"), ""},
-    {"ObstacleNudgeMaxSpeed", tr("Maximum Speed"), tr("<b>Highest speed at which openpilot will nudge away from objects.</b>"), ""},
-    {"ObstacleNudgeCrossCenterLine", tr("Cross the Center Line"), tr("<b>Allow the nudge to cross the center line when radar detects no oncoming traffic.</b> Requires radar — there is no camera-based source for oncoming traffic. Radar cannot see over crests, around bends, or past the edges of its field of view, so no detection is not proof the road is clear. Use with care."), ""},
-    {"ObstacleNudgeMaxCenterLineOvershoot", tr("Maximum Overshoot"), tr("<b>How far past the center line openpilot may go.</b> The road edge always remains a hard limit."), ""},
-    {"ObstacleNudgeGain", tr("Response Gain"), tr("<b>How aggressively openpilot moves to the offset it wants.</b> Raise if it undershoots; lower if it feels twitchy or hunts."), ""},
-    {"ObstacleNudgeDebug", tr("Debug Readout"), tr("<b>Show live detection numbers on screen.</b> Raw radar counts, the values the detection gates test, road edge distances at three lookaheads, and which gate is currently blocking the nudge."), ""},
 
     {"LateralTune", tr("Lateral Tuning"), tr("<b>Miscellaneous steering control changes</b> to fine-tune how openpilot drives."), "../../frogpilot/assets/toggle_icons/icon_lateral_tune.png"},
     {"TurnDesires", tr("Force Turn Desires Below Lane Change Speed"), tr("<b>While driving below the minimum lane change speed with an active turn signal, instruct openpilot to turn left/right.</b>"), ""},
@@ -135,25 +121,6 @@ FrogPilotLateralPanel::FrogPilotLateralPanel(FrogPilotSettingsWindow *parent, bo
     } else if (param == "MinimumLaneChangeSpeed") {
       lateralToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0, 99, QString(), std::map<float, QString>(), 1, true);
 
-    } else if (param == "ObstacleNudge") {
-      FrogPilotManageControl *obstacleNudgeToggle = new FrogPilotManageControl(param, title, desc, icon);
-      QObject::connect(obstacleNudgeToggle, &FrogPilotManageControl::manageButtonClicked, [lateralLayout, obstacleNudgePanel]() {
-        lateralLayout->setCurrentWidget(obstacleNudgePanel);
-      });
-      lateralToggle = obstacleNudgeToggle;
-    } else if (param == "ObstacleNudgeMinClearance" || param == "ObstacleNudgeMaxOffset" || param == "ObstacleNudgeMaxCenterLineOvershoot") {
-      lateralToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0, 15, QString(), std::map<float, QString>(), 0.1, true);
-    } else if (param == "ObstacleNudgeTriggerDistance") {
-      lateralToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0, 200, QString(), std::map<float, QString>(), 1, true);
-    } else if (param == "ObstacleNudgeMinSpeed" || param == "ObstacleNudgeMaxSpeed") {
-      lateralToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0, 99, QString(), std::map<float, QString>(), 1, true);
-    } else if (param == "ObstacleNudgeGain") {
-      std::map<float, QString> gainLabels;
-      for (int i = 25; i <= 200; i += 5) {
-        gainLabels[i / 100.0f] = QString::number(i / 100.0f, 'f', 2) + "x";
-      }
-      lateralToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0.25, 2.0, QString(), gainLabels, 0.05);
-
     } else if (param == "LateralTune") {
       FrogPilotManageControl *lateralTuneToggle = new FrogPilotManageControl(param, title, desc, icon);
       QObject::connect(lateralTuneToggle, &FrogPilotManageControl::manageButtonClicked, [lateralLayout, lateralTunePanel]() {
@@ -186,8 +153,6 @@ FrogPilotLateralPanel::FrogPilotLateralPanel(FrogPilotSettingsWindow *parent, bo
       laneChangeList->addItem(lateralToggle);
     } else if (lateralTuneKeys.contains(param)) {
       lateralTuneList->addItem(lateralToggle);
-    } else if (obstacleNudgeKeys.contains(param)) {
-      obstacleNudgeList->addItem(lateralToggle);
     } else if (qolKeys.contains(param)) {
       qolList ->addItem(lateralToggle);
     } else {
@@ -211,7 +176,7 @@ FrogPilotLateralPanel::FrogPilotLateralPanel(FrogPilotSettingsWindow *parent, bo
     });
   }
 
-  QSet<QString> forceUpdateKeys = {"ForceAutoTune", "ForceAutoTuneOff", "LateralTune", "NNFF", "NudgelessLaneChange", "ObstacleNudgeCrossCenterLine"};
+  QSet<QString> forceUpdateKeys = {"ForceAutoTune", "ForceAutoTuneOff", "LateralTune", "NNFF", "NudgelessLaneChange"};
   for (const QString &key : forceUpdateKeys) {
     QObject::connect(static_cast<ToggleControl*>(toggles[key]), &ToggleControl::toggleFlipped, this, &FrogPilotLateralPanel::updateToggles);
   }
@@ -309,14 +274,8 @@ void FrogPilotLateralPanel::updateMetric(bool metric, bool bootRun) {
     double speedConversion = metric ? MILE_TO_KM : KM_TO_MILE;
 
     params.putFloatNonBlocking("LaneDetectionWidth", params.getFloat("LaneDetectionWidth") * distanceConversion);
-    params.putFloatNonBlocking("ObstacleNudgeMaxCenterLineOvershoot", params.getFloat("ObstacleNudgeMaxCenterLineOvershoot") * distanceConversion);
-    params.putFloatNonBlocking("ObstacleNudgeMaxOffset", params.getFloat("ObstacleNudgeMaxOffset") * distanceConversion);
-    params.putFloatNonBlocking("ObstacleNudgeMinClearance", params.getFloat("ObstacleNudgeMinClearance") * distanceConversion);
-    params.putIntNonBlocking("ObstacleNudgeTriggerDistance", params.getInt("ObstacleNudgeTriggerDistance") * distanceConversion);
 
     params.putIntNonBlocking("MinimumLaneChangeSpeed", params.getInt("MinimumLaneChangeSpeed") * speedConversion);
-    params.putIntNonBlocking("ObstacleNudgeMaxSpeed", params.getInt("ObstacleNudgeMaxSpeed") * speedConversion);
-    params.putIntNonBlocking("ObstacleNudgeMinSpeed", params.getInt("ObstacleNudgeMinSpeed") * speedConversion);
     params.putIntNonBlocking("PauseAOLOnBrake", params.getInt("PauseAOLOnBrake") * speedConversion);
     params.putIntNonBlocking("PauseLateralSpeed", params.getInt("PauseLateralSpeed") * speedConversion);
   }
@@ -327,28 +286,8 @@ void FrogPilotLateralPanel::updateMetric(bool metric, bool bootRun) {
   static std::map<float, QString> metricDistanceLabels;
   static std::map<float, QString> metricSpeedLabels;
 
-  // The distance maps above top out at 15 feet / 5 meters, which is far too short for a
-  // detection range, so the trigger distance gets its own whole-unit maps.
-  static std::map<float, QString> imperialRangeLabels;
-  static std::map<float, QString> metricRangeLabels;
-
-  // The obstacle nudge stores 0 as "not set" rather than "off", so it needs its own copies
-  // that say so — the code substitutes a unit-appropriate default in that case.
-  static std::map<float, QString> imperialNudgeDistanceLabels;
-  static std::map<float, QString> metricNudgeDistanceLabels;
-  static std::map<float, QString> imperialNudgeSpeedLabels;
-  static std::map<float, QString> metricNudgeSpeedLabels;
-
   static bool labelsInitialized = false;
   if (!labelsInitialized) {
-    for (int i = 0; i <= 200; ++i) {
-      imperialRangeLabels[i] = i == 0 ? tr("Off") : i == 1 ? QString::number(i) + tr(" foot") : QString::number(i) + tr(" feet");
-    }
-
-    for (int i = 0; i <= 60; ++i) {
-      metricRangeLabels[i] = i == 0 ? tr("Off") : i == 1 ? QString::number(i) + tr(" meter") : QString::number(i) + tr(" meters");
-    }
-
     for (int i = 0; i <= 150; ++i) {
       float key = i / 10.0f;
       imperialDistanceLabels[key] = key == 0 ? tr("Off") : i == 1 ? QString::number(i) + tr(" foot") : QString::number(key, 'f', 1) + tr(" feet");
@@ -367,18 +306,6 @@ void FrogPilotLateralPanel::updateMetric(bool metric, bool bootRun) {
       metricSpeedLabels[i] = i == 0 ? tr("Off") : QString::number(i) + tr(" km/h");
     }
 
-    imperialNudgeDistanceLabels = imperialDistanceLabels;
-    metricNudgeDistanceLabels = metricDistanceLabels;
-    imperialNudgeSpeedLabels = imperialSpeedLabels;
-    metricNudgeSpeedLabels = metricSpeedLabels;
-
-    imperialNudgeDistanceLabels[0] = tr("Default");
-    metricNudgeDistanceLabels[0] = tr("Default");
-    imperialNudgeSpeedLabels[0] = tr("Default");
-    metricNudgeSpeedLabels[0] = tr("Default");
-    imperialRangeLabels[0] = tr("Default");
-    metricRangeLabels[0] = tr("Default");
-
     labelsInitialized = true;
   }
 
@@ -387,41 +314,18 @@ void FrogPilotLateralPanel::updateMetric(bool metric, bool bootRun) {
   FrogPilotParamValueControl *pauseAOLOnBrakeToggle = static_cast<FrogPilotParamValueControl*>(toggles["PauseAOLOnBrake"]);
   FrogPilotParamValueControl *pauseLateralToggle = static_cast<FrogPilotParamValueControl*>(toggles["PauseLateralSpeed"]);
 
-  FrogPilotParamValueControl *nudgeOvershootToggle = static_cast<FrogPilotParamValueControl*>(toggles["ObstacleNudgeMaxCenterLineOvershoot"]);
-  FrogPilotParamValueControl *nudgeMaxOffsetToggle = static_cast<FrogPilotParamValueControl*>(toggles["ObstacleNudgeMaxOffset"]);
-  FrogPilotParamValueControl *nudgeMinClearanceToggle = static_cast<FrogPilotParamValueControl*>(toggles["ObstacleNudgeMinClearance"]);
-  FrogPilotParamValueControl *nudgeTriggerDistanceToggle = static_cast<FrogPilotParamValueControl*>(toggles["ObstacleNudgeTriggerDistance"]);
-  FrogPilotParamValueControl *nudgeMaxSpeedToggle = static_cast<FrogPilotParamValueControl*>(toggles["ObstacleNudgeMaxSpeed"]);
-  FrogPilotParamValueControl *nudgeMinSpeedToggle = static_cast<FrogPilotParamValueControl*>(toggles["ObstacleNudgeMinSpeed"]);
-
   if (metric) {
     laneWidthToggle->updateControl(0, 5, metricDistanceLabels);
 
     minimumLaneChangeSpeedToggle->updateControl(0, 150, metricSpeedLabels);
     pauseAOLOnBrakeToggle->updateControl(0, 150, metricSpeedLabels);
     pauseLateralToggle->updateControl(0, 150, metricSpeedLabels);
-
-    nudgeOvershootToggle->updateControl(0, 0.6, metricNudgeDistanceLabels);
-    nudgeMaxOffsetToggle->updateControl(0, 1.0, metricNudgeDistanceLabels);
-    nudgeMinClearanceToggle->updateControl(0, 2.0, metricNudgeDistanceLabels);
-    nudgeTriggerDistanceToggle->updateControl(0, 60, metricRangeLabels);
-
-    nudgeMaxSpeedToggle->updateControl(0, 150, metricNudgeSpeedLabels);
-    nudgeMinSpeedToggle->updateControl(0, 150, metricNudgeSpeedLabels);
   } else {
     laneWidthToggle->updateControl(0, 15, imperialDistanceLabels);
 
     minimumLaneChangeSpeedToggle->updateControl(0, 99, imperialSpeedLabels);
     pauseAOLOnBrakeToggle->updateControl(0, 99, imperialSpeedLabels);
     pauseLateralToggle->updateControl(0, 99, imperialSpeedLabels);
-
-    nudgeOvershootToggle->updateControl(0, 2.0, imperialNudgeDistanceLabels);
-    nudgeMaxOffsetToggle->updateControl(0, 3.3, imperialNudgeDistanceLabels);
-    nudgeMinClearanceToggle->updateControl(0, 6.5, imperialNudgeDistanceLabels);
-    nudgeTriggerDistanceToggle->updateControl(0, 200, imperialRangeLabels);
-
-    nudgeMaxSpeedToggle->updateControl(0, 99, imperialNudgeSpeedLabels);
-    nudgeMinSpeedToggle->updateControl(0, 99, imperialNudgeSpeedLabels);
   }
 }
 
@@ -469,15 +373,6 @@ void FrogPilotLateralPanel::updateToggles() {
 
     else if (key == "LaneDetectionWidth") {
       setVisible &= params.getBool("LaneChanges") && params.getBool("NudgelessLaneChange");
-    }
-
-    else if (key == "ObstacleNudgeCrossCenterLine") {
-      // No vision source for oncoming traffic, so this is radar-only
-      setVisible &= parent->hasRadar;
-    }
-
-    else if (key == "ObstacleNudgeMaxCenterLineOvershoot") {
-      setVisible &= parent->hasRadar && params.getBool("ObstacleNudgeCrossCenterLine");
     }
 
     else if (key == "NNFF") {
@@ -530,8 +425,6 @@ void FrogPilotLateralPanel::updateToggles() {
         toggles["LaneChanges"]->setVisible(true);
       } else if (lateralTuneKeys.contains(key)) {
         toggles["LateralTune"]->setVisible(true);
-      } else if (obstacleNudgeKeys.contains(key)) {
-        toggles["ObstacleNudge"]->setVisible(true);
       } else if (qolKeys.contains(key)) {
         toggles["QOLLateral"]->setVisible(true);
       }
