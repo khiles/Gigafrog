@@ -207,6 +207,11 @@ DeveloperPanel::DeveloperPanel(SettingsWindow *parent) : QFrame(parent) {
         {17, tr("Pose: Cornering Acceleration")},
         {18, tr("Pose: Road Gradient")},
         {19, tr("Pose: Road Roughness")},
+        {20, tr("Tesla Map Data: Speed Limit")},
+        {21, tr("Tesla Map Data: Fleet Mean Speed")},
+        {22, tr("Tesla Map Data: Road Curvature")},
+        {23, tr("Tesla Map Data: Stop Line Distance")},
+        {24, tr("Tesla: Sun Position")},
       };
 
       ButtonControl *metricToggle = new ButtonControl(title, tr("SELECT"), desc);

@@ -81,6 +81,25 @@ struct FrogPilotCarState @0xf35cc4560bbf6ec2 {
   pauseLongitudinal @12 :Bool;
   sportGear @13 :Bool;
   trafficModeEnabled @14 :Bool;
+
+  # Tesla chassis-bus map and solar data (Model S HW3), from tesla/carstate.py. Each group is
+  # gated on message liveness because presence on a real Raven is unverified, so the ...Valid
+  # flags mean "the message is arriving", not "the value is interesting". Nothing consumes
+  # these yet — they are published to be displayed and checked against reality first.
+  solarDataValid @15 :Bool;
+  sunUp @16 :Bool;
+  solarElevationDeg @17 :Float32;
+
+  mapCurvatureValid @18 :Bool;
+  mapCurvatureC2 @19 :Float32;       # 1/m
+  mapCurvatureC3 @20 :Float32;       # 1/m2
+  mapCurvatureRange @21 :Float32;    # m, distance the polynomial above is valid for
+
+  roadSignValid @22 :Bool;
+  mapSpeedLimit @23 :Float32;        # m/s, 0 = not seen yet
+  fleetMeanSpeed @24 :Float32;       # m/s, what drivers actually do here; 0 = not seen yet
+  stopSignDistance @25 :Float32;     # m, -1 = not seen yet
+  trafficLightDistance @26 :Float32; # m, -1 = not seen yet
 }
 
 struct FrogPilotDeviceState @0xda96579883444c35 {

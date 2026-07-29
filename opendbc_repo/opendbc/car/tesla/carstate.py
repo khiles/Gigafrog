@@ -9,6 +9,41 @@ from opendbc.car.tesla.values import DBC, CANBUS, GEAR_MAP, STEER_THRESHOLD, Tes
 
 ButtonType = structs.CarState.ButtonEvent.Type
 
+# How long an optional message may go unheard before its values are treated as unknown.
+MSG_TIMEOUT_NANOS = int(0.5e9)
+
+# UI_driverAssistRoadSign is multiplexed on UI_roadSign, and the CAN parser has no multiplex
+# support at all — dbc.py's SGM_RE matches the multiplexed signal form and then discards the
+# multiplexor token, so every mode's signals decode from every frame regardless of which mode
+# the frame actually is (they share the same bits). Each mode therefore has to be picked out by
+# hand. Maps mode -> (our name, value signal, confidence signal or None).
+ROAD_SIGN_MODES = {
+  1: ("stopSignDistance", "UI_stopSignStopLineDist", "UI_stopSignStopLineConf"),
+  2: ("trafficLightDistance", "UI_trafficLightStopLineDist", "UI_trafficLightStopLineConf"),
+  3: ("mapSpeedLimit", "UI_baseMapSpeedLimitMPS", None),
+  4: ("fleetMeanSpeed", "UI_meanFleetSplineSpeedMPS", None),
+}
+ROAD_SIGN_MIN_CONF = 50  # of 100
+
+
+def _msg_alive(cp, msg: str, sig: str) -> bool:
+  """True if `msg` is actually arriving on cp's bus.
+
+  Every CANParser on this platform is built with an empty message list (see get_can_parsers),
+  so a message that is not on the bus decodes silently to zero instead of raising. Zero is a
+  plausible-looking lie for most of what we read off the chassis bus — a 0 speed limit, a 0
+  curvature ("straight road"), a 0 UI_isSunUp ("night") — so every optional message is gated
+  on this rather than on its value.
+
+  ts_nanos is 0 until the first frame arrives, and last_nonempty_nanos is the newest frame seen
+  on the same bus, so both sides share a clock and no external time source is needed. Touch
+  cp.vl first: messages are registered lazily by VLDict.__getitem__, and ts_nanos is only
+  populated by that registration.
+  """
+  cp.vl[msg]
+  ts = cp.ts_nanos[msg][sig]
+  return ts != 0 and (cp.last_nonempty_nanos - ts) < MSG_TIMEOUT_NANOS
+
 
 class CarState(CarStateBase):
   def __init__(self, CP, FPCP):
@@ -44,6 +79,27 @@ class CarState(CarStateBase):
 
     self.distance_button = 0
     self.dtr_dist_prev = -1
+
+    # Latest value seen per UI_driverAssistRoadSign mode. The modes rotate, so a mode absent
+    # from this cycle must keep its previous value rather than reset to zero.
+    self.road_sign: dict[str, float] = {}
+
+  def update_road_sign(self, cp) -> bool:
+    """Demultiplex UI_driverAssistRoadSign into self.road_sign. Returns whether it is alive."""
+    if not _msg_alive(cp, "UI_driverAssistRoadSign", "UI_roadSign"):
+      self.road_sign.clear()
+      return False
+
+    frames = cp.vl_all["UI_driverAssistRoadSign"]
+    for i, mode in enumerate(frames["UI_roadSign"]):
+      entry = ROAD_SIGN_MODES.get(int(mode))
+      if entry is None:
+        continue
+      name, val_sig, conf_sig = entry
+      if conf_sig is not None and frames[conf_sig][i] < ROAD_SIGN_MIN_CONF:
+        continue
+      self.road_sign[name] = frames[val_sig][i]
+    return True
 
   def update_autopark_state(self, autopark_state: str, cruise_enabled: bool):
     autopark_now = autopark_state in ("ACTIVE", "COMPLETE", "SELFPARK_STARTED")
@@ -293,6 +349,34 @@ class CarState(CarStateBase):
           fp_ret.dashboardSpeedLimit = limit * CV.KPH_TO_MS
         elif speed_units == "MPH":
           fp_ret.dashboardSpeedLimit = limit * CV.MPH_TO_MS
+
+    # Tesla's own map and solar data, off the chassis bus (HW3 only). Read-only for now: nothing
+    # consumes these yet, they are published so a drive can show whether the messages exist on a
+    # Raven at all and whether the decoded values are plausible. Presence is unverified — hence
+    # the _msg_alive gate on each one, which leaves the fields at their unknown sentinels rather
+    # than reporting a confident zero.
+    if self.CP.carFingerprint == CAR.TESLA_MODEL_S_HW3:
+      # Sun position. Gives a real day/night signal, which openpilot otherwise has no source for.
+      fp_ret.solarDataValid = _msg_alive(cp_chassis, "UI_solarData", "UI_isSunUp")
+      if fp_ret.solarDataValid:
+        fp_ret.sunUp = cp_chassis.vl["UI_solarData"]["UI_isSunUp"] != 0
+        fp_ret.solarElevationDeg = cp_chassis.vl["UI_solarData"]["UI_solarElevationAngle"]
+
+      # Map curvature ahead, from Tesla's map (CSA = curve speed adjustment), as a C2/C3
+      # polynomial valid over UI_csaRoadCurvRange metres — i.e. beyond camera range.
+      fp_ret.mapCurvatureValid = _msg_alive(cp_chassis, "UI_csaRoadCurvature", "UI_csaRoadCurvC2")
+      if fp_ret.mapCurvatureValid:
+        csa = cp_chassis.vl["UI_csaRoadCurvature"]
+        fp_ret.mapCurvatureC2 = csa["UI_csaRoadCurvC2"]
+        fp_ret.mapCurvatureC3 = csa["UI_csaRoadCurvC3"]
+        fp_ret.mapCurvatureRange = csa["UI_csaRoadCurvRange"]
+
+      # Multiplexed: map speed limit, fleet-measured mean speed, and stop-line distances.
+      fp_ret.roadSignValid = self.update_road_sign(cp_chassis)
+      fp_ret.mapSpeedLimit = self.road_sign.get("mapSpeedLimit", 0.0)
+      fp_ret.fleetMeanSpeed = self.road_sign.get("fleetMeanSpeed", 0.0)
+      fp_ret.stopSignDistance = self.road_sign.get("stopSignDistance", -1.0)
+      fp_ret.trafficLightDistance = self.road_sign.get("trafficLightDistance", -1.0)
 
     return ret, fp_ret
 

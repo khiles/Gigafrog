@@ -68,6 +68,7 @@ void DeveloperSidebar::updateState(const UIState &s, const FrogPilotUIState &fs)
 
   const cereal::CarControl::Reader &carControl = fpsm["carControl"].getCarControl();
   const cereal::CarState::Reader &carState = sm["carState"].getCarState();
+  const cereal::FrogPilotCarState::Reader &frogpilotCarState = fpsm["frogpilotCarState"].getFrogpilotCarState();
   const cereal::FrogPilotPlan::Reader &frogpilotPlan = fpsm["frogpilotPlan"].getFrogpilotPlan();
   const cereal::LiveDelayData::Reader &liveDelay = fpsm["liveDelay"].getLiveDelay();
   const cereal::LiveParametersData::Reader &liveParameters = fpsm["liveParameters"].getLiveParameters();
@@ -139,6 +140,46 @@ void DeveloperSidebar::updateState(const UIState &s, const FrogPilotUIState &fs)
   roadGradientStatus = ItemStatus(QPair<QString, QString>(tr("GRADIENT"), QString::number(frogpilotPlan.getRoadGradient() * 100.0f, 'f', 1) + "%"), metricColor);
   roadRoughnessStatus = ItemStatus(QPair<QString, QString>(tr("ROUGHNESS"), QString::number(frogpilotPlan.getRoadRoughness(), 'f', 2)), metricColor);
 
+  // Tesla chassis-bus map and solar data. Nothing consumes these yet — they are shown so a drive
+  // can tell whether the messages exist on this car and whether the values are plausible, which
+  // is why "--" (message not arriving) is a meaningful reading here rather than a display bug.
+  const QString speedUnit = is_metric ? tr(" km/h") : tr(" mph");
+  const float speedConversion = is_metric ? MS_TO_KPH : MS_TO_MPH;
+
+  const bool roadSignValid = frogpilotCarState.getRoadSignValid();
+  const float mapSpeedLimit = frogpilotCarState.getMapSpeedLimit();
+  const float fleetMeanSpeed = frogpilotCarState.getFleetMeanSpeed();
+  const float stopSign = frogpilotCarState.getStopSignDistance();
+  const float trafficLight = frogpilotCarState.getTrafficLightDistance();
+
+  mapSpeedLimitStatus = ItemStatus(QPair<QString, QString>(tr("MAP LIMIT"),
+    (roadSignValid && mapSpeedLimit > 0) ? QString::number(mapSpeedLimit * speedConversion, 'f', 0) + speedUnit : "--"), metricColor);
+  fleetSpeedStatus = ItemStatus(QPair<QString, QString>(tr("FLEET SPD"),
+    (roadSignValid && fleetMeanSpeed > 0) ? QString::number(fleetMeanSpeed * speedConversion, 'f', 0) + speedUnit : "--"), metricColor);
+
+  // Whichever stop line is closer; stop sign wins a tie. -1 means that type has not been seen.
+  QString stopLineLabel = "--";
+  if (roadSignValid) {
+    const bool haveStop = stopSign >= 0;
+    const bool haveLight = trafficLight >= 0;
+    if (haveStop && (!haveLight || stopSign <= trafficLight)) {
+      stopLineLabel = "S " + QString::number(stopSign, 'f', 0) + tr(" m");
+    } else if (haveLight) {
+      stopLineLabel = "L " + QString::number(trafficLight, 'f', 0) + tr(" m");
+    }
+  }
+  stopLineStatus = ItemStatus(QPair<QString, QString>(tr("STOP LINE"), stopLineLabel), metricColor);
+
+  mapCurvatureStatus = ItemStatus(QPair<QString, QString>(tr("MAP CURV"),
+    frogpilotCarState.getMapCurvatureValid()
+      ? QString::number(frogpilotCarState.getMapCurvatureC2(), 'f', 5) + " / " + QString::number(frogpilotCarState.getMapCurvatureRange(), 'f', 0) + tr(" m")
+      : "--"), metricColor);
+
+  sunStatus = ItemStatus(QPair<QString, QString>(tr("SUN"),
+    frogpilotCarState.getSolarDataValid()
+      ? (frogpilotCarState.getSunUp() ? tr("UP ") : tr("DOWN ")) + QString::number(frogpilotCarState.getSolarElevationDeg(), 'f', 0) + "°"
+      : "--"), metricColor);
+
   update();
 }
 
@@ -169,6 +210,11 @@ void DeveloperSidebar::paintEvent(QPaintEvent *event) {
   metricMap.insert(17, &corneringAccelerationStatus);
   metricMap.insert(18, &roadGradientStatus);
   metricMap.insert(19, &roadRoughnessStatus);
+  metricMap.insert(20, &mapSpeedLimitStatus);
+  metricMap.insert(21, &fleetSpeedStatus);
+  metricMap.insert(22, &mapCurvatureStatus);
+  metricMap.insert(23, &stopLineStatus);
+  metricMap.insert(24, &sunStatus);
 
   int count = 0;
   for (size_t i = 0; i < metricAssignments.size(); ++i) {
