@@ -149,6 +149,8 @@ struct FrogPilotOnroadEvent @0xa5cd762cd951a455 {
     # RANDOM_EVENT_START <= event <= RANDOM_EVENT_END, so anything inserted between
     # @17 and @28 would be mistaken for a random event.
     mapHazard @29;
+    speedLimitExceeded @30;
+    tailgating @31;
   }
 }
 

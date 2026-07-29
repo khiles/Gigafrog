@@ -1,0 +1,188 @@
+"""Speeding and tailgating alert logic.
+
+Both run off fields that were already published with no consumer: slcSpeedLimit /
+slcSpeedLimitOffset / slcSpeedLimitSource, and tFollow.
+"""
+import pytest
+
+from types import SimpleNamespace
+
+from openpilot.common.realtime import DT_MDL
+from openpilot.frogpilot.controls.lib import frogpilot_events as E
+
+
+def make_sm(v_ego=20.0, limit=20.0, offset=0.0, source="Map Data", limit_changed=False,
+            t_follow=1.45, lead_d_rel=60.0, lead_status=True, traffic_mode=False):
+  return {
+    "carState": SimpleNamespace(vEgo=v_ego),
+    "frogpilotCarState": SimpleNamespace(trafficModeEnabled=traffic_mode),
+    "frogpilotPlan": SimpleNamespace(slcSpeedLimit=limit, slcSpeedLimitOffset=offset,
+                                     slcSpeedLimitSource=source, speedLimitChanged=limit_changed,
+                                     tFollow=t_follow),
+    "radarState": SimpleNamespace(leadOne=SimpleNamespace(status=lead_status, dRel=lead_d_rel)),
+  }
+
+
+def toggles(**kw):
+  base = dict(speed_limit_exceeded_alert=True, speed_limit_exceeded_margin=2.0, tailgating_alert=True)
+  base.update(kw)
+  return SimpleNamespace(**base)
+
+
+class Events:
+  """Stand-in for the Events container — records what was added."""
+  def __init__(self):
+    self.added = []
+
+  def add(self, name):
+    self.added.append(name)
+
+
+def make_handler(tracking_lead=True):
+  handler = E.FrogPilotEvents.__new__(E.FrogPilotEvents)
+  handler.events = Events()
+  handler.frogpilot_planner = SimpleNamespace(tracking_lead=tracking_lead)
+  handler.speeding_t = 0.0
+  handler.speeding_armed = True
+  handler.speeding_since_alert = 0.0
+  handler.tailgating_t = 0.0
+  handler.tailgating_since_alert = E.TAILGATING_REPEAT
+  return handler
+
+
+def run_speeding(handler, seconds, **sm_kwargs):
+  for _ in range(int(seconds / DT_MDL)):
+    handler.update_speeding(make_sm(**sm_kwargs), toggles())
+
+
+def run_tailgating(handler, seconds, **sm_kwargs):
+  for _ in range(int(seconds / DT_MDL)):
+    handler.update_tailgating(make_sm(**sm_kwargs), toggles())
+
+
+# ---- speeding ----
+
+def test_speeding_fires_when_sustained_over():
+  handler = make_handler()
+  run_speeding(handler, 10.0, v_ego=30.0, limit=20.0)
+  assert E.FrogPilotEventName.speedLimitExceeded in handler.events.added
+
+
+def test_speeding_silent_when_no_limit_known():
+  handler = make_handler()
+  run_speeding(handler, 10.0, v_ego=40.0, limit=0.0, source="None")
+  assert handler.events.added == []
+
+
+def test_speeding_silent_while_limit_is_changing():
+  handler = make_handler()
+  run_speeding(handler, 10.0, v_ego=30.0, limit=20.0, limit_changed=True)
+  assert handler.events.added == []
+
+
+def test_speeding_respects_the_margin():
+  # 21 m/s against a 20 m/s limit is inside the 2 m/s margin
+  handler = make_handler()
+  run_speeding(handler, 10.0, v_ego=21.0, limit=20.0)
+  assert handler.events.added == []
+
+
+def test_speeding_respects_the_offset():
+  # offset raises the effective limit, so 24 against 20+3+2 is under
+  handler = make_handler()
+  run_speeding(handler, 10.0, v_ego=24.0, limit=20.0, offset=3.0)
+  assert handler.events.added == []
+
+
+def test_speeding_needs_to_be_sustained():
+  handler = make_handler()
+  run_speeding(handler, E.SPEEDING_SUSTAIN - 0.5, v_ego=30.0, limit=20.0)
+  assert handler.events.added == []
+
+
+def test_speeding_does_not_chatter_at_the_threshold():
+  # Hovering either side of the limit must not produce a stream of alerts
+  handler = make_handler()
+  for i in range(int(60.0 / DT_MDL)):
+    v_ego = 23.0 if (i // int(2.0 / DT_MDL)) % 2 == 0 else 21.5
+    handler.update_speeding(make_sm(v_ego=v_ego, limit=20.0), toggles())
+  assert len(handler.events.added) <= 1
+
+
+def test_speeding_rearms_after_slowing_properly():
+  handler = make_handler()
+  run_speeding(handler, 10.0, v_ego=30.0, limit=20.0)
+  first = len(handler.events.added)
+  run_speeding(handler, 10.0, v_ego=15.0, limit=20.0)   # clearly back under
+  run_speeding(handler, 10.0, v_ego=30.0, limit=20.0)
+  assert len(handler.events.added) > first
+
+
+def test_speeding_off_when_toggle_off():
+  handler = make_handler()
+  for _ in range(int(10.0 / DT_MDL)):
+    handler.update_speeding(make_sm(v_ego=30.0, limit=20.0), toggles(speed_limit_exceeded_alert=False))
+  assert handler.events.added == []
+
+
+# ---- tailgating ----
+
+def test_tailgating_fires_when_too_close():
+  # 1.45s tFollow, fires below 65% of it; 15m at 20m/s is 0.75s
+  handler = make_handler()
+  run_tailgating(handler, 10.0, v_ego=20.0, lead_d_rel=15.0)
+  assert E.FrogPilotEventName.tailgating in handler.events.added
+
+
+def test_tailgating_silent_at_a_normal_gap():
+  handler = make_handler()
+  run_tailgating(handler, 10.0, v_ego=20.0, lead_d_rel=40.0)
+  assert handler.events.added == []
+
+
+def test_tailgating_suppressed_in_traffic_mode():
+  handler = make_handler()
+  run_tailgating(handler, 10.0, v_ego=20.0, lead_d_rel=10.0, traffic_mode=True)
+  assert handler.events.added == []
+
+
+def test_tailgating_suppressed_below_min_speed():
+  handler = make_handler()
+  run_tailgating(handler, 10.0, v_ego=5.0, lead_d_rel=3.0)
+  assert handler.events.added == []
+
+
+def test_tailgating_needs_a_tracked_lead():
+  handler = make_handler(tracking_lead=False)
+  run_tailgating(handler, 10.0, v_ego=20.0, lead_d_rel=10.0)
+  assert handler.events.added == []
+
+  handler = make_handler()
+  run_tailgating(handler, 10.0, v_ego=20.0, lead_d_rel=10.0, lead_status=False)
+  assert handler.events.added == []
+
+
+def test_tailgating_does_not_nag_continuously():
+  handler = make_handler()
+  run_tailgating(handler, 120.0, v_ego=20.0, lead_d_rel=10.0)
+  # 120s at a 30s repeat interval should be a handful, not hundreds
+  assert 1 <= len(handler.events.added) <= 5
+
+
+def test_tailgating_scales_with_the_drivers_own_gap():
+  # The same 25m gap is fine at a short tFollow and too close at a long one
+  short = make_handler()
+  run_tailgating(short, 10.0, v_ego=20.0, lead_d_rel=25.0, t_follow=1.0)
+  assert short.events.added == []
+
+  long = make_handler()
+  run_tailgating(long, 10.0, v_ego=20.0, lead_d_rel=25.0, t_follow=3.0)
+  assert E.FrogPilotEventName.tailgating in long.events.added
+
+
+@pytest.mark.parametrize("event", ["speedLimitExceeded", "tailgating"])
+def test_events_are_outside_the_random_event_range(event):
+  # frogpilot_events tests RANDOM_EVENT_START <= event <= RANDOM_EVENT_END, so a new
+  # non-random event inside 17..28 would be treated as a random event
+  value = getattr(E.FrogPilotEventName, event)
+  assert not (E.RANDOM_EVENT_START <= value <= E.RANDOM_EVENT_END)

@@ -11,6 +11,17 @@ from openpilot.frogpilot.common.frogpilot_variables import CRUISING_SPEED, NON_D
 DEJA_VU_G_FORCE = 0.75
 HAZARD_LOOKAHEAD = 8.0     # s of travel at the set speed
 MIN_HAZARD_DISTANCE = 100  # m, so it still warns in time at low speed
+
+# Speeding. Sustain and re-arm so it can't chatter either side of the threshold.
+SPEEDING_SUSTAIN = 3.0     # s continuously over before it fires
+SPEEDING_REARM = 2.0       # m/s back under the limit before it can fire again
+SPEEDING_REPEAT = 60.0     # s minimum between repeats while still speeding
+
+# Tailgating, measured against the driver's own chosen following time
+TAILGATING_FRACTION = 0.65   # fires below this share of tFollow
+TAILGATING_SUSTAIN = 4.0     # s continuously too close
+TAILGATING_REPEAT = 30.0     # s minimum between repeats
+TAILGATING_MIN_SPEED = 8.0   # m/s, no point nagging in slow traffic
 RANDOM_EVENTS_CHANCE = 0.01 * DT_MDL
 RANDOM_EVENTS_LENGTH = 5
 
@@ -38,7 +49,76 @@ class FrogPilotEvents:
 
     self.announced_hazard = ""
 
+    self.speeding_t = 0.0
+    self.speeding_armed = True
+    self.speeding_since_alert = 0.0
+
+    self.tailgating_t = 0.0
+    # Seeded at the repeat interval so the first alert fires as soon as it's sustained,
+    # rather than waiting a full repeat period before it can ever speak
+    self.tailgating_since_alert = TAILGATING_REPEAT
+
     self.error_log = error_log
+
+  def update_speeding(self, sm, frogpilot_toggles):
+    """Warn when over the posted limit. Distinct from EventName.speedTooHigh, which means
+    'faster than the model's training data', not 'faster than the sign'."""
+    frogpilot_plan = sm["frogpilotPlan"]
+    limit = frogpilot_plan.slcSpeedLimit
+
+    # source is "None" whenever no limit is known, and the limit is unreliable while a
+    # change is still being confirmed
+    known = frogpilot_plan.slcSpeedLimitSource != "None" and limit > 0 and not frogpilot_plan.speedLimitChanged
+    if not (frogpilot_toggles.speed_limit_exceeded_alert and known):
+      self.speeding_t = 0.0
+      return
+
+    threshold = limit + frogpilot_plan.slcSpeedLimitOffset + frogpilot_toggles.speed_limit_exceeded_margin
+    over = sm["carState"].vEgo > threshold
+
+    self.speeding_since_alert += DT_MDL
+    if over:
+      self.speeding_t += DT_MDL
+    else:
+      self.speeding_t = 0.0
+      # Re-arm only once clearly back under, so hovering at the limit can't retrigger
+      if sm["carState"].vEgo < threshold - SPEEDING_REARM:
+        self.speeding_armed = True
+
+    if self.speeding_t >= SPEEDING_SUSTAIN and (self.speeding_armed or self.speeding_since_alert >= SPEEDING_REPEAT):
+      self.events.add(FrogPilotEventName.speedLimitExceeded)
+      self.speeding_armed = False
+      self.speeding_since_alert = 0.0
+
+  def update_tailgating(self, sm, frogpilot_toggles):
+    """Warn when the gap is well under the driver's own chosen following time.
+
+    Most useful when openpilot is not controlling longitudinal, which is exactly when
+    nothing else is watching the gap.
+    """
+    lead = sm["radarState"].leadOne
+    v_ego = sm["carState"].vEgo
+    t_follow = sm["frogpilotPlan"].tFollow
+
+    eligible = frogpilot_toggles.tailgating_alert and self.frogpilot_planner.tracking_lead
+    eligible &= lead.status and v_ego > TAILGATING_MIN_SPEED and t_follow > 0
+    # Traffic mode deliberately runs short gaps
+    eligible &= not sm["frogpilotCarState"].trafficModeEnabled
+
+    if not eligible:
+      self.tailgating_t = 0.0
+      return
+
+    self.tailgating_since_alert += DT_MDL
+    if lead.dRel / v_ego < t_follow * TAILGATING_FRACTION:
+      self.tailgating_t += DT_MDL
+    else:
+      self.tailgating_t = 0.0
+
+    if self.tailgating_t >= TAILGATING_SUSTAIN and self.tailgating_since_alert >= TAILGATING_REPEAT:
+      self.events.add(FrogPilotEventName.tailgating)
+      self.tailgating_t = 0.0
+      self.tailgating_since_alert = 0.0
 
   def update(self, long_control_active, v_cruise, sm, frogpilot_toggles):
     current_alert = sm["selfdriveState"].alertType
@@ -80,6 +160,9 @@ class FrogPilotEvents:
           self.announced_hazard = hazard
       elif not hazard:
         self.announced_hazard = ""
+
+    self.update_speeding(sm, frogpilot_toggles)
+    self.update_tailgating(sm, frogpilot_toggles)
 
     if self.frogpilot_planner.tracking_lead and sm["carState"].standstill and sm["carState"].gearShifter not in NON_DRIVING_GEARS:
       if self.tracked_lead_distance == 0:

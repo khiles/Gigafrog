@@ -454,6 +454,13 @@ class FrogPilotVariables:
     toggle.green_light_alert = self.get_value("GreenLightAlert", condition=custom_alerts)
     toggle.lead_departing_alert = self.get_value("LeadDepartingAlert", condition=custom_alerts)
     toggle.map_hazard_alert = self.get_value("MapHazardAlert", condition=custom_alerts)
+    toggle.speed_limit_exceeded_alert = self.get_value("SpeedLimitExceededAlert", condition=custom_alerts)
+    toggle.tailgating_alert = self.get_value("TailgatingAlert", condition=custom_alerts)
+
+    # Stored in display units, so 0 means "not set" and falls through to the SI default
+    # rather than being converted — see the obstacle nudge note for why.
+    exceeded_margin = self.get_value("SpeedLimitExceededMargin", cast=float, condition=toggle.speed_limit_exceeded_alert, default=0.0)
+    toggle.speed_limit_exceeded_margin = (exceeded_margin * speed_conversion) if exceeded_margin else 2.0
     toggle.loud_blindspot_alert = self.get_value("LoudBlindspotAlert", condition=custom_alerts and has_bsm)
     toggle.speed_limit_changed_alert = self.get_value("SpeedLimitChangedAlert", condition=custom_alerts)
 

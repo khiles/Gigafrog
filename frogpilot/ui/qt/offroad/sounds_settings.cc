@@ -35,6 +35,9 @@ FrogPilotSoundsPanel::FrogPilotSoundsPanel(FrogPilotSettingsWindow *parent, bool
     {"GoatScream", tr("Goat Scream"), tr("<b>Play the infamous \"Goat Scream\" when the steering controller reaches its limit.</b> Based on the \"Turn Exceeds Steering Limit\" event."), ""},
     {"GreenLightAlert", tr("Green Light Alert"), tr("<b>Play an alert when the model predicts a red light has turned green.</b><br><br><i><b>Disclaimer</b>: openpilot does not explicitly detect traffic lights. This alert is based on end-to-end model predictions from camera input and may trigger even when the light has not changed.</i>"), ""},
     {"LeadDepartingAlert", tr("Lead Departing Alert"), tr("<b>Play an alert when the lead vehicle departs from a stop.</b>"), ""},
+    {"SpeedLimitExceededAlert", tr("Speed Limit Exceeded Alert"), tr("<b>Play an alert when driving over the posted speed limit.</b> Uses the same limit as \"Speed Limit Controller\", so it stays quiet wherever no limit is known."), ""},
+    {"SpeedLimitExceededMargin", tr("Speed Limit Exceeded Margin"), tr("<b>How far over the limit before the alert plays.</b>"), ""},
+    {"TailgatingAlert", tr("Tailgating Alert"), tr("<b>Play an alert when following the car ahead more closely than your own chosen following distance.</b> Suppressed in \"Traffic Mode\", which deliberately runs shorter gaps."), ""},
     {"MapHazardAlert", tr("Hazard Alert"), tr("<b>Play an alert when approaching a hazard mapped in \"OpenStreetMap (OSM)\"</b>, such as a ford, a level crossing or loose chippings."), ""},
     {"LoudBlindspotAlert", tr("Loud \"Car Detected in Blindspot\" Alert"), tr("<b>Play a louder alert if a vehicle is in the blind spot when attempting to change lanes.</b> Based on the \"Car Detected in Blindspot\" event."), ""},
     {"SpeedLimitChangedAlert", tr("Speed Limit Changed Alert"), tr("<b>Play an alert when the posted speed limit changes.</b>"), ""}
@@ -60,6 +63,9 @@ FrogPilotSoundsPanel::FrogPilotSoundsPanel(FrogPilotSettingsWindow *parent, bool
       } else {
         soundsToggle = new FrogPilotParamValueButtonControl(param, title, desc, icon, 0, 101, QString(), volumeLabels, 1, true, {}, alertButton, false, false);
       }
+
+    } else if (param == "SpeedLimitExceededMargin") {
+      soundsToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0, 99, QString(), std::map<float, QString>(), 1, true);
 
     } else if (param == "CustomAlerts") {
       FrogPilotManageControl *customAlertsToggle = new FrogPilotManageControl(param, title, desc, icon);
@@ -106,6 +112,10 @@ FrogPilotSoundsPanel::FrogPilotSoundsPanel(FrogPilotSettingsWindow *parent, bool
       testSound(key);
     });
   }
+
+  // The margin row only applies once the alert is on, so refresh visibility live
+  QObject::connect(static_cast<ToggleControl*>(toggles["SpeedLimitExceededAlert"]), &ToggleControl::toggleFlipped,
+                   this, &FrogPilotSoundsPanel::updateToggles);
 
   QObject::connect(parent, &FrogPilotSettingsWindow::closeSubPanel, [soundsLayout, soundsPanel, this] {
     openDescriptions(forceOpenDescriptions, toggles);
@@ -181,7 +191,12 @@ void FrogPilotSoundsPanel::updateToggles() {
       setVisible &= parent->hasBSM;
     }
 
-    else if (key == "SpeedLimitChangedAlert") {
+    else if (key == "SpeedLimitChangedAlert" || key == "SpeedLimitExceededAlert") {
+      setVisible &= params.getBool("ShowSpeedLimits") || (parent->hasOpenpilotLongitudinal && params.getBool("SpeedLimitController"));
+    }
+
+    else if (key == "SpeedLimitExceededMargin") {
+      setVisible &= params.getBool("SpeedLimitExceededAlert");
       setVisible &= params.getBool("ShowSpeedLimits") || (parent->hasOpenpilotLongitudinal && params.getBool("SpeedLimitController"));
     }
 
