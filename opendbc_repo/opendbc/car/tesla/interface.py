@@ -72,10 +72,14 @@ class CarInterface(CarInterfaceBase):
     ret.steerControlType = structs.CarParams.SteerControlType.angle
     ret.radarUnavailable = candidate in (CAR.TESLA_MODEL_S_HW2, )
 
-    # HW3 gets blind spot from AutopilotStatus on the chassis bus (see carstate). The bus
-    # is searched rather than indexed because CANBUS.chassis is remapped in CarState.__init__,
-    # which runs after this. Matches the 0x201 check above.
-    ret.enableBsm = candidate == CAR.TESLA_MODEL_S_HW3 and any(0x399 in f for f in fingerprint.values())
+    # HW3 gets blind spot from AutopilotStatus (0x399) on the chassis bus, see carstate.
+    #
+    # Deliberately NOT a fingerprint check. The scan above only runs for ~2s at ignition,
+    # which is fine for 0x201 (the airbag module is alive immediately) but far too early
+    # for the Autopilot computer to have booted — so 0x399 is reliably absent from the
+    # fingerprint even though the message is healthy while driving. carstate reads it
+    # unconditionally on this platform for the same reason.
+    ret.enableBsm = candidate == CAR.TESLA_MODEL_S_HW3
 
     # Longitudinal is always enabled for legacy cars (not alpha/optional).
     # Do NOT set alphaLongitudinalAvailable — that would make the UI require the
