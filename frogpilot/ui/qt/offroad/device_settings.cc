@@ -37,6 +37,7 @@ FrogPilotDevicePanel::FrogPilotDevicePanel(FrogPilotSettingsWindow *parent, bool
     {"HigherBitrate", tr("High-Quality Recording"), tr("<b>Save drive footage in higher video quality.</b>"), ""},
     {"LowVoltageShutdown", tr("Low-Voltage Cutoff"), tr("<b>While parked, if the battery voltage falls below the set level, the device shuts down</b> to prevent excessive battery drain."), ""},
     {"IncreaseThermalLimits", tr("Raise Temperature Limits"), QString("<b>%1</b><br><br>%2").arg(tr("WARNING: Running at higher temperatures may damage your device!")).arg(tr("<b>Allow the device to run at higher temperatures</b> before throttling or shutting down. Use only if you understand the risks!")), ""},
+    {"LiveTuneOnroad", tr("Live Tune While Driving"), tr("<b>Keep the Live Tune web dashboard running while driving.</b> The camera stream is disabled and the live feed is slowed right down when onroad. Previously, running this while driving starved the driving model of CPU and caused a disengagement \u2014 leave it off unless you need it, and turn it off again if you see any \"communication issue\" alerts."), ""},
     {"UseKonikServer", tr("Use Konik Server"), tr("<b>Upload driving data to \"stable.konik.ai\" instead of \"connect.comma.ai\".</b>"), ""},
 
     {"ScreenManagement", tr("Screen Settings"), tr("<b>Settings that control screen brightness, screen recording, and timeout duration.</b>"), "../../frogpilot/assets/toggle_icons/icon_light.png"},

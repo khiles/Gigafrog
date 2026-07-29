@@ -57,6 +57,12 @@ def only_onroad(started: bool, params: Params, CP: car.CarParams, frogpilot_togg
 def only_offroad(started: bool, params: Params, CP: car.CarParams, frogpilot_toggles: SimpleNamespace) -> bool:
   return not started
 
+def live_tune(started: bool, params: Params, CP: car.CarParams, frogpilot_toggles: SimpleNamespace) -> bool:
+  # Offroad always. Onroad only on request: running this while driving previously caused
+  # CPU contention with modeld and a commIssue cascade that disengaged the car, so the
+  # server drops the camera stream and slows its live feed right down when onroad.
+  return (not started) or frogpilot_toggles.live_tune_onroad
+
 def or_(*fns):
   return lambda *args: operator.or_(*(fn(*args) for fn in fns))
 
@@ -138,7 +144,7 @@ if HARDWARE.get_device_type() == "mici":
 elif TICI:
   procs.append(NativeProcess("ui", "selfdrive/ui", ["./ui"], always_run, watchdog_max_dt=5)),
 procs += [
-  PythonProcess("live_tune_server", "system.live_tune.live_tune_server", only_offroad),
+  PythonProcess("live_tune_server", "system.live_tune.live_tune_server", live_tune),
   PythonProcess("device_syncd", "frogpilot.system.device_syncd", always_run),
   PythonProcess("frogpilot_process", "frogpilot.frogpilot_process", always_run),
   NativeProcess("mapd", "frogpilot/navigation", ["./mapd"], run_mapd),

@@ -32,6 +32,9 @@ from cereal import messaging
 from openpilot.common.params import Params
 
 PORT = 8765
+WS_INTERVAL_OFFROAD = 0.25  # s
+WS_INTERVAL_ONROAD = 2.0    # s, keep well clear of modeld
+
 CEREAL_SERVICES = ['liveTorqueParameters', 'liveParameters', 'carState', 'controlsState', 'deviceState']
 
 STREAM_CAMERAS = {
@@ -218,6 +221,17 @@ def _read_all_params() -> dict[str, Any]:
   return out
 
 
+def _is_onroad() -> bool:
+  """True while driving. The server is normally offroad-only: when it ran onroad with the
+  camera stream active, aiohttp competed with modeld for CPU and caused frame drops and a
+  commIssue cascade that disengaged the car. Onroad it therefore serves params only —
+  no video, and a much slower live feed."""
+  try:
+    return Params().get_bool("IsOnroad")  # persistent, written by system/manager/helpers.py
+  except Exception:
+    return False
+
+
 def _read_stats() -> dict[str, Any]:
   try:
     stats = Params().get('FrogPilotStats') or {}
@@ -369,7 +383,7 @@ async def _ws_send_loop(ws: web.WebSocketResponse) -> None:
     except Exception as exc:
       logging.getLogger('live_tune').warning('WS send error: %s', exc)
 
-    await asyncio.sleep(0.25)
+    await asyncio.sleep(WS_INTERVAL_ONROAD if _is_onroad() else WS_INTERVAL_OFFROAD)
 
 
 async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
@@ -1124,6 +1138,11 @@ async def qr_handler(request: web.Request) -> web.Response:
 
 async def stream_handler(request: web.Request) -> web.StreamResponse:
   """MJPEG endpoint — decodes the openpilot livestream encode and pushes JPEG frames."""
+  if _is_onroad():
+    # The camera stream is the specific cause of the CPU contention that disengaged the
+    # car. It is never served while driving, regardless of the onroad toggle.
+    return web.Response(status=503, text='camera stream is disabled while driving')
+
   cam = request.rel_url.query.get('cam', 'road')
   service = STREAM_CAMERAS.get(cam, 'livestreamRoadEncodeData')
 

@@ -625,6 +625,8 @@ class FrogPilotVariables:
     toggle.personality_profile_via_lkas = toggle.openpilot_longitudinal and lkas_button_control == BUTTON_FUNCTIONS["PERSONALITY_PROFILE"]
     toggle.traffic_mode_via_lkas = toggle.openpilot_longitudinal and lkas_button_control == BUTTON_FUNCTIONS["TRAFFIC_MODE"]
 
+    toggle.live_tune_onroad = self.get_value("LiveTuneOnroad")
+
     toggle.lock_doors_timer = self.get_value("LockDoorsTimer", cast=float, condition=(toggle.car_make == "toyota"))
 
     longitudinal_tuning = toggle.openpilot_longitudinal and self.get_value("LongitudinalTune")
