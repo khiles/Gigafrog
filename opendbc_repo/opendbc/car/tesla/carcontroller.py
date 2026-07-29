@@ -20,6 +20,7 @@ class CarController(CarControllerBase):
   def __init__(self, dbc_names, CP):
     super().__init__(dbc_names, CP)
     self.apply_angle_last = 0
+    self.body_controls_cancel_sends = 0
     self.packer = CANPacker(dbc_names[Bus.party])
     self.tesla_can = TeslaCAN(self.packer)
 
@@ -33,10 +34,11 @@ class CarController(CarControllerBase):
 
       self.packers = {CANBUS.party: CANPacker(dbc_names[Bus.party]), CANBUS.powertrain: CANPacker(dbc_names[Bus.pt])}
       # HW3 uses a separate party-bus DBC (tesla_raven_party) that has no counter/checksum
-      # for DAS_bodyControls. The BCM lives on the chassis bus, so add a chassis packer
-      # using tesla_can.dbc (which does have counter/checksum) so the indicator override
-      # message goes directly to the BCM on bus 5 rather than relying on AP forwarding.
+      # for DAS_bodyControls. The BCM lives on the chassis bus (first panda's bus 1), so add
+      # a chassis packer using tesla_can.dbc (which does have counter/checksum) so the
+      # indicator override message goes directly to the BCM rather than relying on AP forwarding.
       if CP.carFingerprint == CAR.TESLA_MODEL_S_HW3:
+        CANBUS.chassis = 1  # also set by CarState.__init__; don't rely on construction order
         self.packers[CANBUS.chassis] = CANPacker(dbc_names[Bus.chassis])
       self.tesla_can = TeslaCANRaven(self.packers)
       from opendbc.car.tesla.interface import CarInterface
@@ -91,16 +93,21 @@ class CarController(CarControllerBase):
     # Keep the turn indicator on for the full duration of an openpilot-commanded
     # lane change. CC.leftBlinker/rightBlinker are driven by the model's lane
     # change state (not the physical stalk), so they stay True past the 3-flash
-    # auto-cancel that normally kills the blinker mid-maneuver.
+    # auto-cancel that normally kills the blinker mid-maneuver. Only transmit while
+    # requesting an indicator, plus a short NONE tail so the BCM reliably cancels;
+    # outside of that the stock AP owns DAS_bodyControls (auto wipers/high beam).
     if self.frame % 10 == 0:
-      cntr = (self.frame // 10) % 16
-      if CC.leftBlinker:
-        turn_indicator, turn_reason = 1, 6   # LEFT, DAS_ACTIVE_COMMANDED_LANE_CHANGE
-      elif CC.rightBlinker:
-        turn_indicator, turn_reason = 2, 6   # RIGHT, DAS_ACTIVE_COMMANDED_LANE_CHANGE
-      else:
-        turn_indicator, turn_reason = 0, 0   # NONE
-      can_sends.append(self.tesla_can.create_body_controls(cntr, turn_indicator, turn_reason))
+      blinker_cmd = CC.leftBlinker or CC.rightBlinker
+      if blinker_cmd:
+        self.body_controls_cancel_sends = 10  # ~1s of NONE frames once the request drops
+      if blinker_cmd or self.body_controls_cancel_sends > 0:
+        if blinker_cmd:
+          turn_indicator, turn_reason = (1 if CC.leftBlinker else 2), 6  # LEFT/RIGHT, DAS_ACTIVE_COMMANDED_LANE_CHANGE
+        else:
+          self.body_controls_cancel_sends -= 1
+          turn_indicator, turn_reason = 0, 0   # NONE
+        cntr = (self.frame // 10) % 16
+        can_sends.append(self.tesla_can.create_body_controls(cntr, turn_indicator, turn_reason))
 
     # TODO: HUD control
     new_actuators = actuators.as_builder()

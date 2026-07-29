@@ -126,7 +126,7 @@ class TestToyotaSafetyBase(common.CarSafetyTest, common.LongitudinalAccelSafetyT
   def _toggle_aol(self, toggle_on):
     # pcm_cruise_2, bit 15 is toggle_on
     values = {"MAIN_ON": 1 if toggle_on else 0}
-    return self.packer.make_can_msg_panda("PCM_CRUISE_2", 0, values)
+    return self.packer.make_can_msg_safety("PCM_CRUISE_2", 0, values)
 
 
 class TestToyotaSafetyTorque(TestToyotaSafetyBase, common.MotorTorqueSteeringSafetyTest, common.SteerRequestCutSafetyTest):

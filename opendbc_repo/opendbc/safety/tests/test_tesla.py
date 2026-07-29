@@ -16,6 +16,7 @@ from opendbc.safety.tests.common import CANPackerSafety, MAX_SPEED_DELTA, MAX_WR
 MSG_DAS_steeringControl = 0x488
 MSG_APS_eacMonitor = 0x27d
 MSG_DAS_Control = 0x2b9
+MSG_DAS_bodyControls = 0x3E9
 
 
 def round_angle(apply_angle, can_offset=0):
@@ -26,9 +27,9 @@ def round_angle(apply_angle, can_offset=0):
 
 
 class TestTeslaSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest, common.LongitudinalAccelSafetyTest):
-  RELAY_MALFUNCTION_ADDRS = {0: (MSG_DAS_steeringControl, MSG_APS_eacMonitor)}
+  RELAY_MALFUNCTION_ADDRS = {0: (MSG_DAS_steeringControl, MSG_APS_eacMonitor, MSG_DAS_bodyControls)}
   FWD_BLACKLISTED_ADDRS = {2: [MSG_DAS_steeringControl, MSG_APS_eacMonitor]}
-  TX_MSGS = [[MSG_DAS_steeringControl, 0], [MSG_APS_eacMonitor, 0], [MSG_DAS_Control, 0]]
+  TX_MSGS = [[MSG_DAS_steeringControl, 0], [MSG_APS_eacMonitor, 0], [MSG_DAS_Control, 0], [MSG_DAS_bodyControls, 0]]
 
   STANDSTILL_THRESHOLD = 0.1
   GAS_PRESSED_THRESHOLD = 3
@@ -357,7 +358,7 @@ class TestTeslaSafetyBase(common.CarSafetyTest, common.AngleSteeringSafetyTest, 
   def _toggle_aol(self, toggle_on):
     # DI_state, DI_cruiseState is the cruise state, 1 is standby
     values = {"DI_cruiseState": 1 if toggle_on else 0}
-    return self.packer.make_can_msg_panda("DI_state", 0, values)
+    return self.packer.make_can_msg_safety("DI_state", 0, values)
 
 
 class TestTeslaStockSafety(TestTeslaSafetyBase):
@@ -402,7 +403,7 @@ class TestTeslaStockSafety(TestTeslaSafetyBase):
 
 
 class TestTeslaLongitudinalSafety(TestTeslaSafetyBase):
-  RELAY_MALFUNCTION_ADDRS = {0: (MSG_DAS_steeringControl, MSG_APS_eacMonitor, MSG_DAS_Control)}
+  RELAY_MALFUNCTION_ADDRS = {0: (MSG_DAS_steeringControl, MSG_APS_eacMonitor, MSG_DAS_Control, MSG_DAS_bodyControls)}
   FWD_BLACKLISTED_ADDRS = {2: [MSG_DAS_steeringControl, MSG_APS_eacMonitor, MSG_DAS_Control]}
 
   def setUp(self):

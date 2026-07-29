@@ -18,6 +18,11 @@ static bool tesla_legacy_stock_aeb = false;
 static bool tesla_legacy_stock_lkas = false;
 static bool tesla_legacy_stock_lkas_prev = false;
 
+// True while openpilot is commanding a turn indicator via DAS_bodyControls (0x3E9).
+// Used to block the stock AP's own DAS_bodyControls from being forwarded, which would
+// otherwise race our request and cancel the indicator mid lane change.
+static bool tesla_legacy_op_turn_indicator = false;
+
 static void tesla_legacy_rx_hook(const CANPacket_t *msg) {
 
   // Steering angle: (0.1 * val) - 819.2 in deg.
@@ -166,6 +171,12 @@ static bool tesla_legacy_tx_hook(const CANPacket_t *msg) {
     violation |= longitudinal_accel_checks(raw_accel_min, TESLA_LONG_LIMITS);
   }
 
+  // DAS_bodyControls: track whether openpilot is requesting a turn indicator
+  // (DAS_turnIndicatorRequest, byte 1 bits 0-1: 0=NONE, 1=LEFT, 2=RIGHT)
+  if (!tesla_external_panda && (msg->addr == 0x3E9U)) {
+    tesla_legacy_op_turn_indicator = (msg->data[1] & 0x03U) != 0U;
+  }
+
   if (violation) {
     tx = false;
   }
@@ -191,6 +202,13 @@ static bool tesla_legacy_fwd_hook(int bus_num, int addr) {
     if ((tesla_external_panda || tesla_hw1) && (addr == das_control_msg) && !tesla_legacy_stock_aeb) {
       block_msg = true;
     }
+
+    // DAS_bodyControls: block the stock AP's body controls while openpilot is
+    // commanding a turn indicator, so its (indicator NONE) request doesn't race ours.
+    // Stock wiper/high-beam requests resume as soon as our indicator request ends.
+    if (!tesla_external_panda && tesla_hw3 && (addr == 0x3E9U) && tesla_legacy_op_turn_indicator) {
+      block_msg = true;
+    }
   }
 
   return block_msg;
@@ -212,6 +230,7 @@ static safety_config tesla_legacy_init(uint16_t param) {
   tesla_legacy_stock_aeb = false;
   tesla_legacy_stock_lkas = false;
   tesla_legacy_stock_lkas_prev = false;
+  tesla_legacy_op_turn_indicator = false;
   chassis_bus = 0U;
   di_torque1_msg = 0x106U;
 
@@ -227,6 +246,16 @@ static safety_config tesla_legacy_init(uint16_t param) {
 
   static const CanMsg TESLA_LEGACY_PT_MSGS[] = {
     {0x2bf, 0, 8, .check_relay = true, .disable_static_blocking = true},  // DAS_control
+  };
+
+  // HW3: the BCM lives on the chassis bus (local bus 1 of the first panda), so
+  // DAS_bodyControls is sent there instead of bus 0. check_relay must be false:
+  // the stock AP's own DAS_bodyControls legitimately reaches the chassis bus
+  // (gateway-relayed), so seeing it as RX there is not a relay malfunction.
+  static const CanMsg TESLA_TX_LEGACY_HW3_MSGS[] = {
+    {0x488, 0, 4, .check_relay = true, .disable_static_blocking = true},  // DAS_steeringControl
+    {0x27D, 0, 3, .check_relay = true, .disable_static_blocking = true},  // APS_eacMonitor
+    {0x3E9, 1, 8, .check_relay = false},                                  // DAS_bodyControls (turn indicator)
   };
 
   static const CanMsg TESLA_TX_LEGACY_HW1_MSGS[] = {
@@ -276,7 +305,7 @@ static safety_config tesla_legacy_init(uint16_t param) {
 
   if (tesla_hw3) {
     chassis_bus = 1U;
-    return BUILD_SAFETY_CFG(tesla_legacy_hw3_rx_checks, TESLA_TX_LEGACY_MSGS);
+    return BUILD_SAFETY_CFG(tesla_legacy_hw3_rx_checks, TESLA_TX_LEGACY_HW3_MSGS);
   }
 
   if (tesla_hw1) {
