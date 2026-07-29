@@ -9,6 +9,13 @@ from opendbc.car.tesla.values import CarControllerParams, CANBUS, LEGACY_CARS, C
 from opendbc.car.vehicle_model import VehicleModel
 
 
+# DAS_bodyControls send period, in 10ms control frames. 5 is 20Hz; set back to 10 for the
+# stock 10Hz if the faster rate makes the indicator worse rather than better.
+BLINKER_SEND_PERIOD = 5
+BLINKER_HOLD_SENDS = int(0.5 / (0.01 * BLINKER_SEND_PERIOD))   # hold the last direction 0.5s
+BLINKER_CANCEL_SENDS = int(1.0 / (0.01 * BLINKER_SEND_PERIOD))  # then 1s of NONE to cancel
+
+
 def get_safety_CP():
   # We use the TESLA_MODEL_Y platform for lateral limiting to match safety
   # A Model 3 at 40 m/s using the Model Y limits sees a <0.3% difference in max angle (from curvature factor)
@@ -21,6 +28,8 @@ class CarController(CarControllerBase):
     super().__init__(dbc_names, CP)
     self.apply_angle_last = 0
     self.body_controls_cancel_sends = 0
+    self.body_controls_hold_sends = 0
+    self.body_controls_indicator = 0
     self.packer = CANPacker(dbc_names[Bus.party])
     self.tesla_can = TeslaCAN(self.packer)
 
@@ -96,17 +105,33 @@ class CarController(CarControllerBase):
     # auto-cancel that normally kills the blinker mid-maneuver. Only transmit while
     # requesting an indicator, plus a short NONE tail so the BCM reliably cancels;
     # outside of that the stock AP owns DAS_bodyControls (auto wipers/high beam).
-    if self.frame % 10 == 0:
+    #
+    # Sent at 20Hz rather than 10Hz, and the direction is latched for BLINKER_HOLD_SENDS
+    # after the request drops. On the car the indicator flashed in bursts of two with a
+    # pause between them instead of holding, which is what a request that keeps getting
+    # re-triggered looks like: any frame where we stop asserting a direction — either a
+    # competing DAS_bodyControls from the stock AP landing between ours, or CC.leftBlinker
+    # briefly dropping as the lane change state machine passes through laneChangeFinishing
+    # (desire_helper clears lane_change_direction before picking the next state) — lets the
+    # BCM restart its flash sequence. Holding closes the gap on our side; it does not fix
+    # the stock AP case, which needs a CAN capture on the chassis bus to confirm.
+    if self.frame % BLINKER_SEND_PERIOD == 0:
       blinker_cmd = CC.leftBlinker or CC.rightBlinker
       if blinker_cmd:
-        self.body_controls_cancel_sends = 10  # ~1s of NONE frames once the request drops
-      if blinker_cmd or self.body_controls_cancel_sends > 0:
-        if blinker_cmd:
-          turn_indicator, turn_reason = (1 if CC.leftBlinker else 2), 6  # LEFT/RIGHT, DAS_ACTIVE_COMMANDED_LANE_CHANGE
+        self.body_controls_indicator = 1 if CC.leftBlinker else 2  # LEFT/RIGHT
+        self.body_controls_hold_sends = BLINKER_HOLD_SENDS
+        self.body_controls_cancel_sends = BLINKER_CANCEL_SENDS
+      elif self.body_controls_hold_sends > 0:
+        self.body_controls_hold_sends -= 1
+
+      holding = self.body_controls_hold_sends > 0
+      if blinker_cmd or holding or self.body_controls_cancel_sends > 0:
+        if blinker_cmd or holding:
+          turn_indicator, turn_reason = self.body_controls_indicator, 6  # DAS_ACTIVE_COMMANDED_LANE_CHANGE
         else:
           self.body_controls_cancel_sends -= 1
           turn_indicator, turn_reason = 0, 0   # NONE
-        cntr = (self.frame // 10) % 16
+        cntr = (self.frame // BLINKER_SEND_PERIOD) % 16
         can_sends.append(self.tesla_can.create_body_controls(cntr, turn_indicator, turn_reason))
 
     # TODO: HUD control
