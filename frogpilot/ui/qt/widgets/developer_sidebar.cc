@@ -140,6 +140,22 @@ void DeveloperSidebar::updateState(const UIState &s, const FrogPilotUIState &fs)
   roadGradientStatus = ItemStatus(QPair<QString, QString>(tr("GRADIENT"), QString::number(frogpilotPlan.getRoadGradient() * 100.0f, 'f', 1) + "%"), metricColor);
   roadRoughnessStatus = ItemStatus(QPair<QString, QString>(tr("ROUGHNESS"), QString::number(frogpilotPlan.getRoadRoughness(), 'f', 2)), metricColor);
 
+  // Where the car sits between the ego lane's lines. Measurement only — nothing steers on it.
+  // Positive offset means the lane centre is to the right, i.e. the car is left of centre.
+  // Invalid means the lane lines were not confident, the car was too slow, or it was mid lane
+  // change, so "--" is a real reading rather than a display fault.
+  const QString distanceUnit = (is_metric || use_si) ? tr(" m") : tr(" in");
+  const float distanceConversion = (is_metric || use_si) ? 1.0f : (100.0f * CM_TO_INCH);
+
+  laneOffsetStatus = ItemStatus(QPair<QString, QString>(tr("LANE OFF"),
+    frogpilotPlan.getLaneOffsetValid()
+      ? QString::number(frogpilotPlan.getLaneOffsetFiltered() * distanceConversion, 'f', (is_metric || use_si) ? 2 : 1) + distanceUnit
+      : "--"), metricColor);
+  laneWidthStatus = ItemStatus(QPair<QString, QString>(tr("LANE WIDTH"),
+    frogpilotPlan.getLaneOffsetValid()
+      ? QString::number(frogpilotPlan.getMeasuredLaneWidth() * distanceConversion, 'f', (is_metric || use_si) ? 2 : 1) + distanceUnit
+      : "--"), metricColor);
+
   // Tesla chassis-bus map and solar data. Nothing consumes these yet — they are shown so a drive
   // can tell whether the messages exist on this car and whether the values are plausible, which
   // is why "--" (message not arriving) is a meaningful reading here rather than a display bug.
@@ -215,6 +231,8 @@ void DeveloperSidebar::paintEvent(QPaintEvent *event) {
   metricMap.insert(22, &mapCurvatureStatus);
   metricMap.insert(23, &stopLineStatus);
   metricMap.insert(24, &sunStatus);
+  metricMap.insert(25, &laneOffsetStatus);
+  metricMap.insert(26, &laneWidthStatus);
 
   int count = 0;
   for (size_t i = 0; i < metricAssignments.size(); ++i) {

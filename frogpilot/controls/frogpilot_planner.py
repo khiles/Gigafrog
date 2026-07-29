@@ -3,6 +3,8 @@ import json
 
 import cereal.messaging as messaging
 
+from cereal import log
+
 from openpilot.common.constants import CV
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.gps import get_gps_location_service
@@ -17,6 +19,7 @@ from openpilot.frogpilot.controls.lib.conditional_experimental_mode import Condi
 from openpilot.frogpilot.controls.lib.frogpilot_acceleration import FrogPilotAcceleration
 from openpilot.frogpilot.controls.lib.frogpilot_events import FrogPilotEvents
 from openpilot.frogpilot.controls.lib.frogpilot_following import FrogPilotFollowing
+from openpilot.frogpilot.controls.lib.frogpilot_lane_centering import FrogPilotLaneCentering
 from openpilot.frogpilot.controls.lib.frogpilot_pose import FrogPilotPose
 from openpilot.frogpilot.controls.lib.frogpilot_vcruise import FrogPilotVCruise
 from openpilot.frogpilot.controls.lib.weather_checker import WeatherChecker
@@ -30,6 +33,7 @@ class FrogPilotPlanner:
     self.frogpilot_cem = ConditionalExperimentalMode(self)
     self.frogpilot_events = FrogPilotEvents(self, error_log, ThemeManager)
     self.frogpilot_following = FrogPilotFollowing(self)
+    self.frogpilot_lane_centering = FrogPilotLaneCentering()
     self.frogpilot_pose = FrogPilotPose()
     self.frogpilot_vcruise = FrogPilotVCruise(self)
     self.frogpilot_weather = WeatherChecker(self)
@@ -105,6 +109,10 @@ class FrogPilotPlanner:
 
     self.frogpilot_pose.update(sm["livePose"], v_ego)
 
+    # Measurement only — nothing consumes the offset. See frogpilot_lane_centering.py.
+    lane_change_active = sm["modelV2"].meta.laneChangeState != log.LaneChangeState.off
+    self.frogpilot_lane_centering.update(sm["modelV2"], v_ego, lane_change_active)
+
     self.lateral_check = v_ego >= frogpilot_toggles.pause_lateral_below_speed
     self.lateral_check |= not (sm["carState"].leftBlinker or sm["carState"].rightBlinker) and frogpilot_toggles.pause_lateral_below_signal
     self.lateral_check |= sm["carState"].standstill
@@ -176,6 +184,11 @@ class FrogPilotPlanner:
 
     frogpilotPlan.maxAcceleration = float(self.frogpilot_acceleration.max_accel)
     frogpilotPlan.minAcceleration = float(self.frogpilot_acceleration.min_accel)
+
+    frogpilotPlan.laneOffset = float(self.frogpilot_lane_centering.lane_offset)
+    frogpilotPlan.laneOffsetFiltered = float(self.frogpilot_lane_centering.lane_offset_filtered)
+    frogpilotPlan.laneOffsetValid = self.frogpilot_lane_centering.lane_offset_valid
+    frogpilotPlan.measuredLaneWidth = float(self.frogpilot_lane_centering.lane_width)
 
     frogpilotPlan.corneringAcceleration = float(self.frogpilot_pose.cornering_acceleration)
     frogpilotPlan.roadGradient = float(self.frogpilot_pose.road_gradient)

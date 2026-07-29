@@ -212,6 +212,8 @@ DeveloperPanel::DeveloperPanel(SettingsWindow *parent) : QFrame(parent) {
         {22, tr("Tesla Map Data: Road Curvature")},
         {23, tr("Tesla Map Data: Stop Line Distance")},
         {24, tr("Tesla: Sun Position")},
+        {25, tr("Lane Position: Offset From Centre")},
+        {26, tr("Lane Position: Measured Lane Width")},
       };
 
       ButtonControl *metricToggle = new ButtonControl(title, tr("SELECT"), desc);

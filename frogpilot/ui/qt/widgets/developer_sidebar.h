@@ -34,6 +34,8 @@ private:
   ItemStatus delayStatus;
   ItemStatus fleetSpeedStatus;
   ItemStatus frictionStatus;
+  ItemStatus laneOffsetStatus;
+  ItemStatus laneWidthStatus;
   ItemStatus latAccelStatus;
   ItemStatus lateralEngagementStatus;
   ItemStatus longitudinalEngagementStatus;

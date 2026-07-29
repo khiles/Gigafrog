@@ -97,9 +97,14 @@ DEVELOPER_SIDEBAR_METRICS = {
   "LATERAL_STEERING_ANGLE": 10,
   "LATERAL_TORQUE_USED": 11,
   "LONGITUDINAL_ACTUATOR_ACCELERATION": 12,
-  "LONGITUDINAL_MPC_JERK_ACCELERATION": 13,
-  "LONGITUDINAL_MPC_JERK_DANGER_ZONE": 14,
-  "LONGITUDINAL_MPC_JERK_SPEED_CONTROL": 15,
+  # Ids must match developer_sidebar.cc's metricMap and developer_panel.cc's option labels,
+  # which are the canonical pair. DANGER_FACTOR was missing here, which shifted the three
+  # jerk entries down by one and left 16 unreachable, so the debug_mode defaults below showed
+  # a different metric than their names said.
+  "LONGITUDINAL_MPC_DANGER_FACTOR": 13,
+  "LONGITUDINAL_MPC_JERK_ACCELERATION": 14,
+  "LONGITUDINAL_MPC_JERK_DANGER_ZONE": 15,
+  "LONGITUDINAL_MPC_JERK_SPEED_CONTROL": 16,
   "POSE_CORNERING_ACCELERATION": 17,
   "POSE_ROAD_GRADIENT": 18,
   "POSE_ROAD_ROUGHNESS": 19,
@@ -108,6 +113,8 @@ DEVELOPER_SIDEBAR_METRICS = {
   "TESLA_MAP_CURVATURE": 22,
   "TESLA_MAP_STOP_LINE": 23,
   "TESLA_SUN_POSITION": 24,
+  "LANE_OFFSET": 25,
+  "LANE_WIDTH_MEASURED": 26,
 }
 
 DEVICE_SHUTDOWN_TIMES = {
