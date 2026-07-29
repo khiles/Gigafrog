@@ -222,13 +222,24 @@ def _read_stats() -> dict[str, Any]:
   try:
     stats = Params().get('FrogPilotStats') or {}
     return {
-      'drives':       int(stats.get('Drives', 0)),
-      'engages':      int(stats.get('Engages', 0)),
-      'disengages':   int(stats.get('Disengages', 0)),
-      'overrides':    int(stats.get('Overrides', 0)),
-      'monthKm':      round(float(stats.get('CurrentMonthsMeters', 0)) / 1000.0, 1),
-      'dayTimeHrs':   round(float(stats.get('DayTime', 0)) / 3600.0, 1),
-      'nightTimeHrs': round(float(stats.get('NightTime', 0)) / 3600.0, 1),
+      # frogpilot_tracking.py writes 'FrogPilotDrives', not 'Drives' — this read the wrong
+      # key, so the dashboard's drive count was permanently zero.
+      'drives':          int(stats.get('FrogPilotDrives', 0)),
+      'engages':         int(stats.get('Engages', 0)),
+      'disengages':      int(stats.get('Disengages', 0)),
+      'overrides':       int(stats.get('Overrides', 0)),
+      'monthKm':         round(float(stats.get('CurrentMonthsMeters', 0)) / 1000.0, 1),
+      'totalKm':         round(float(stats.get('FrogPilotMeters', 0)) / 1000.0, 1),
+      'dayTimeHrs':      round(float(stats.get('DayTime', 0)) / 3600.0, 1),
+      'nightTimeHrs':    round(float(stats.get('NightTime', 0)) / 3600.0, 1),
+      'lateralHrs':      round(float(stats.get('LateralTime', 0)) / 3600.0, 1),
+      'longitudinalHrs': round(float(stats.get('LongitudinalTime', 0)) / 3600.0, 1),
+      'standstillHrs':   round(float(stats.get('StandstillTime', 0)) / 3600.0, 1),
+      'maxAccel':        round(float(stats.get('MaxAcceleration', 0)), 2),
+      'maxCorneringG':   round(float(stats.get('MaxCorneringAcceleration', 0)), 2),
+      'maxRoughness':    round(float(stats.get('MaxRoadRoughness', 0)), 2),
+      'metersClimbed':   round(float(stats.get('MetersClimbed', 0))),
+      'longestNoOverrideKm': round(float(stats.get('LongestDistanceWithoutOverride', 0)) / 1000.0, 1),
     }
   except Exception:
     return {}
@@ -640,6 +651,15 @@ select{background:var(--bg3);color:var(--txt);border:1px solid var(--brd);border
     <div class="stat-row"><span class="stat-l">This Month (km)</span><span class="stat-v" id="ds-monthKm">&mdash;</span></div>
     <div class="stat-row"><span class="stat-l">Day Drive Time</span><span class="stat-v" id="ds-dayTime">&mdash;</span></div>
     <div class="stat-row"><span class="stat-l">Night Drive Time</span><span class="stat-v" id="ds-nightTime">&mdash;</span></div>
+    <div class="stat-row"><span class="stat-l">Total Distance</span><span class="stat-v" id="ds-totalKm">&mdash;</span></div>
+    <div class="stat-row"><span class="stat-l">Lateral Engaged</span><span class="stat-v" id="ds-lateralHrs">&mdash;</span></div>
+    <div class="stat-row"><span class="stat-l">Longitudinal Engaged</span><span class="stat-v" id="ds-longitudinalHrs">&mdash;</span></div>
+    <div class="stat-row"><span class="stat-l">Time at Standstill</span><span class="stat-v" id="ds-standstillHrs">&mdash;</span></div>
+    <div class="stat-row"><span class="stat-l">Longest Run, No Override</span><span class="stat-v" id="ds-longestNoOverrideKm">&mdash;</span></div>
+    <div class="stat-row"><span class="stat-l">Peak Acceleration</span><span class="stat-v" id="ds-maxAccel">&mdash;</span></div>
+    <div class="stat-row"><span class="stat-l">Peak Cornering</span><span class="stat-v" id="ds-maxCorneringG">&mdash;</span></div>
+    <div class="stat-row"><span class="stat-l">Roughest Road</span><span class="stat-v" id="ds-maxRoughness">&mdash;</span></div>
+    <div class="stat-row"><span class="stat-l">Metres Climbed</span><span class="stat-v" id="ds-metersClimbed">&mdash;</span></div>
   </div>
 </div>
 <!-- device settings injected here by buildPages() -->
@@ -877,6 +897,15 @@ async function loadStats() {
     st('ds-monthKm', s.monthKm != null ? s.monthKm + ' km' : '\u2014');
     st('ds-dayTime', s.dayTimeHrs != null ? s.dayTimeHrs + ' h' : '\u2014');
     st('ds-nightTime', s.nightTimeHrs != null ? s.nightTimeHrs + ' h' : '\u2014');
+    st('ds-totalKm', s.totalKm != null ? s.totalKm + ' km' : '\u2014');
+    st('ds-lateralHrs', s.lateralHrs != null ? s.lateralHrs + ' h' : '\u2014');
+    st('ds-longitudinalHrs', s.longitudinalHrs != null ? s.longitudinalHrs + ' h' : '\u2014');
+    st('ds-standstillHrs', s.standstillHrs != null ? s.standstillHrs + ' h' : '\u2014');
+    st('ds-longestNoOverrideKm', s.longestNoOverrideKm != null ? s.longestNoOverrideKm + ' km' : '\u2014');
+    st('ds-maxAccel', s.maxAccel != null ? s.maxAccel + ' m/s\u00b2' : '\u2014');
+    st('ds-maxCorneringG', s.maxCorneringG != null ? s.maxCorneringG + ' m/s\u00b2' : '\u2014');
+    st('ds-maxRoughness', s.maxRoughness != null ? s.maxRoughness + ' m/s\u00b2' : '\u2014');
+    st('ds-metersClimbed', s.metersClimbed != null ? s.metersClimbed + ' m' : '\u2014');
   } catch(e) { console.warn('loadStats:', e); }
 }
 
