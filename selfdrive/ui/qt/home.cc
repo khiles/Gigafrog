@@ -74,7 +74,7 @@ void HomeWindow::updateState(const UIState &s, const FrogPilotUIState &fs) {
       showDriverView(true, true);
     } else {
       if (driver_view->isVisible()) {
-        sidebar->setVisible(params.getBool("Sidebar") || frogpilot_toggles.value("debug_mode").toBool());
+        sidebar->setVisible(params.getBool("SidebarOpen") || frogpilot_toggles.value("debug_mode").toBool());
         slayout->setCurrentWidget(onroad);
       }
 

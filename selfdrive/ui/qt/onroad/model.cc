@@ -147,11 +147,11 @@ void ModelRenderer::drawLaneLines(QPainter &painter) {
   // lanelines
   for (int i = 0; i < std::size(lane_line_vertices); ++i) {
     if (frogpilot_toggles.value("color_scheme").toString() != "stock") {
-      painter.setBrush(QColor::fromRgbF(1.0, 1.0, 1.0, std::clamp<float>(lane_line_probs[i], 0.0, 0.7)));
-    } else {
       QColor lane_color = QColor(frogpilot_toggles.value("lane_lines_color").toString());
       lane_color.setAlphaF(lane_color.alphaF() * std::clamp<float>(lane_line_probs[i], 0.0, 0.7));
       painter.setBrush(lane_color);
+    } else {
+      painter.setBrush(QColor::fromRgbF(1.0, 1.0, 1.0, std::clamp<float>(lane_line_probs[i], 0.0, 0.7)));
     }
     painter.drawPolygon(lane_line_vertices[i]);
   }
