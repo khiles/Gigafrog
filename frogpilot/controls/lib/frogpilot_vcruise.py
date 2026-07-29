@@ -69,13 +69,15 @@ class FrogPilotVCruise:
     # Pfeiferj's Speed Limit Controller
     self.slc.frogpilot_toggles = frogpilot_toggles
 
+    relaxed = sm["selfdriveState"].personality == log.LongitudinalPersonality.relaxed
+
     if frogpilot_toggles.speed_limit_controller:
       self.slc.update_limits(sm["frogpilotCarState"].dashboardSpeedLimit, now, time_validated, v_cruise, v_ego, sm)
       self.slc.update_override(v_cruise, v_cruise_diff, v_ego, v_ego_diff, sm)
 
-      # Relaxed profile: use absolute speed limit (no offset) so the car
-      # drives at exactly the posted limit rather than any configured delta.
-      relaxed = sm["selfdriveState"].personality == log.LongitudinalPersonality.relaxed
+      # Relaxed profile: use the absolute speed limit (no offset), so the limit read off
+      # the sign is the limit used. See the slc_active branch below for how it combines
+      # with the driver's set speed.
       self.slc_offset = 0 if relaxed else self.slc.offset
       self.slc_target = self.slc.target
     elif frogpilot_toggles.show_speed_limits:
@@ -104,10 +106,15 @@ class FrogPilotVCruise:
         # SLC has a valid speed limit: use it as the cruise target so the car
         # both slows down AND speeds up to match the posted road speed limit.
         # The curve speed controller still caps speed through corners.
+        targets = [slc_combined]
         if self.csc_controlling_speed:
-          v_cruise = max(min(self.csc_target, slc_combined), CRUISING_SPEED)
-        else:
-          v_cruise = max(slc_combined, CRUISING_SPEED)
+          targets.append(self.csc_target)
+        if relaxed:
+          # Relaxed also treats the driver's set speed (the dash MAX) as a ceiling, so the
+          # car drives whichever of the two is lower. Without this the posted limit replaces
+          # the set speed outright, and a 25 MAX in a 30 zone would accelerate to 30.
+          targets.append(v_cruise)
+        v_cruise = max(min(targets), CRUISING_SPEED)
       else:
         # No valid speed limit (or SLC disabled): original min-cap behaviour
         targets = [self.csc_target, v_cruise]
