@@ -59,6 +59,29 @@ static void update_state(UIState *s, FrogPilotUIState *fs) {
   } else if (!sm.allAliveAndValid({"wideRoadCameraState"})) {
     scene.light_sensor = -1;
   }
+
+  // Night detection. light_sensor is 0-100 with high meaning bright, so this needs both a value
+  // gap and a debounce: the gap stops it oscillating around one threshold, and the debounce stops
+  // a bridge or an overhanging tree flipping it. A tunnel legitimately reads as night, and that
+  // is fine — the point is to stop white text glaring against a dark image.
+  constexpr float NIGHT_ENTER = 10.0f;   // below this it is dark
+  constexpr float NIGHT_EXIT = 25.0f;    // above this it is not
+  constexpr int NIGHT_DEBOUNCE = 3 * UI_FREQ;
+
+  static int night_frames = 0;
+  if (scene.light_sensor < 0) {
+    // No camera (offroad, or the wide camera dropped out) — hold the last state rather than
+    // guessing, since -1 means unknown, not dark.
+    night_frames = 0;
+  } else {
+    const bool want_night = scene.night ? (scene.light_sensor < NIGHT_EXIT)
+                                        : (scene.light_sensor < NIGHT_ENTER);
+    night_frames = want_night == scene.night ? 0 : night_frames + 1;
+    if (night_frames >= NIGHT_DEBOUNCE) {
+      scene.night = want_night;
+      night_frames = 0;
+    }
+  }
   scene.started = sm["deviceState"].getDeviceState().getStarted() && scene.ignition;
 
   auto params = Params();

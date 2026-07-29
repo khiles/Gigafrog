@@ -7,6 +7,11 @@
 constexpr float ADVISORY_LOOKAHEAD = 10.0f;      // s of travel
 constexpr float MIN_ADVISORY_DISTANCE = 150.0f;  // m, so it still shows in time at low speed
 
+// Hazards get a longer lookahead than advisory speeds — a speed bump wants more warning than
+// a suggested cornering speed.
+constexpr float HAZARD_LOOKAHEAD = 12.0f;        // s of travel
+constexpr float MIN_HAZARD_DISTANCE = 200.0f;    // m
+
 FrogPilotAnnotatedCameraWidget::FrogPilotAnnotatedCameraWidget(QWidget *parent) : QWidget(parent) {
   animationTimer = new QTimer(this);
 
@@ -147,6 +152,7 @@ void FrogPilotAnnotatedCameraWidget::updateState(const UIState &s, const FrogPil
 
   if (scene.is_metric || frogpilot_toggles.value("use_si_metrics").toBool()) {
     leadDistanceUnit = tr(" meters");
+    distanceUnitShort = tr("m");
     leadSpeedUnit = frogpilot_toggles.value("use_si_metrics").toBool() ? tr(" m/s") : tr(" km/h");
     speedUnit = scene.is_metric ? tr("km/h") : tr("mph");
 
@@ -155,6 +161,7 @@ void FrogPilotAnnotatedCameraWidget::updateState(const UIState &s, const FrogPil
     speedConversionMetrics = frogpilot_toggles.value("use_si_metrics").toBool() ? 1.0f : MS_TO_KPH;
   } else {
     leadDistanceUnit = tr(" feet");
+    distanceUnitShort = tr("ft");
     leadSpeedUnit = tr(" mph");
     speedUnit = tr("mph");
 
@@ -192,6 +199,12 @@ void FrogPilotAnnotatedCameraWidget::updateState(const UIState &s, const FrogPil
   roadName = QString::fromStdString(mapdOut.getRoadName());
   roadRef = QString::fromStdString(mapdOut.getWayRef());
   advisorySpeed = mapdOut.getAdvisorySpeed();
+  hazard = QString::fromStdString(mapdOut.getHazard());
+  nextHazard = QString::fromStdString(mapdOut.getNextHazard());
+  nextHazardDistance = mapdOut.getNextHazardDistance();
+  nextMapSpeedLimitDistance = mapdOut.getNextSpeedLimitDistance();
+  mapLanes = mapdOut.getLanes();
+  mapOneWay = mapdOut.getOneWay();
   nextAdvisorySpeed = mapdOut.getNextAdvisorySpeed();
   nextAdvisorySpeedDistance = mapdOut.getNextAdvisorySpeedDistance();
   slcOverriddenSpeed = frogpilotPlan.getSlcOverriddenSpeed();
@@ -319,6 +332,8 @@ void FrogPilotAnnotatedCameraWidget::paintFrogPilotWidgets(QPainter &p, UIState 
 
   if (frogpilot_toggles.value("show_advisory_speed").toBool()) {
     paintAdvisorySpeed(p);
+  } else {
+    advisoryPillVisible = false;  // else paintHazard stacks above a pill that is not drawn
   }
 
   bool hideSpeedLimit = !speedLimitChanged && frogpilot_toggles.value("hide_speed_limit").toBool();
@@ -330,6 +345,10 @@ void FrogPilotAnnotatedCameraWidget::paintFrogPilotWidgets(QPainter &p, UIState 
 
   if (frogpilot_toggles.value("speed_limit_sources").toBool()) {
     paintSpeedLimitSources(p);
+  }
+
+  if (frogpilot_toggles.value("map_hazard_alert").toBool()) {
+    paintHazard(p);
   }
 
   if (standstillDuration != 0) {
@@ -977,6 +996,7 @@ void FrogPilotAnnotatedCameraWidget::paintAdvisorySpeed(QPainter &p) {
     upcoming = true;
   }
 
+  advisoryPillVisible = advisory > 0;
   if (advisory <= 0) {
     return;
   }
@@ -1005,6 +1025,57 @@ void FrogPilotAnnotatedCameraWidget::paintAdvisorySpeed(QPainter &p) {
   p.restore();
 }
 
+// OSM hazards (speed bumps, traffic calming, level crossings) already drive an audible alert
+// via frogpilot_events, but nothing showed what the hazard was or how far away. Current hazards
+// are drawn solid red; upcoming ones are dimmed and carry a distance, matching how
+// paintAdvisorySpeed distinguishes the two.
+void FrogPilotAnnotatedCameraWidget::paintHazard(QPainter &p) {
+  QString active = hazard;
+  bool upcoming = false;
+  float distance = 0.0f;
+
+  if (active.isEmpty() && !nextHazard.isEmpty() && nextHazardDistance > 0 &&
+      nextHazardDistance < std::max(speed / speedConversion * HAZARD_LOOKAHEAD, MIN_HAZARD_DISTANCE)) {
+    active = nextHazard;
+    distance = nextHazardDistance;
+    upcoming = true;
+  }
+
+  if (active.isEmpty()) {
+    return;
+  }
+
+  // OSM tags are snake_case ("speed_bump"); make them readable without a lookup table, so an
+  // unexpected tag still displays as itself rather than being dropped.
+  QString label = active.replace("_", " ").toUpper();
+  QString text = label;
+  if (upcoming) {
+    text += QString("  %1 %2").arg(QString::number(std::nearbyint(distance * distanceConversion)), distanceUnitShort);
+  }
+
+  p.save();
+
+  QFont font = InterFont(35, QFont::DemiBold);
+  int textWidth = QFontMetrics(font).horizontalAdvance(text);
+
+  QSize size(textWidth + 60, 46);
+  // Sits above the advisory speed pill, which itself sits above the road name.
+  int bottomMargin = (roadName.isEmpty() && roadRef.isEmpty() ? 5 : 62) + (advisoryPillVisible ? 57 : 0);
+  QRect hazardRect = QStyle::alignedRect(Qt::LeftToRight, Qt::AlignHCenter | Qt::AlignBottom, size,
+                                         rect().adjusted(0, 0, 0, -bottomMargin));
+
+  p.setBrush(blackColor(166));
+  p.setOpacity(upcoming ? 0.7 : 1.0);
+  p.setPen(QPen(blackColor(), 10));
+  p.drawRoundedRect(hazardRect, 22, 22);
+
+  p.setFont(font);
+  p.setPen(QPen(QColor(255, 84, 84), 6));
+  p.drawText(hazardRect, Qt::AlignCenter, text);
+
+  p.restore();
+}
+
 void FrogPilotAnnotatedCameraWidget::paintRoadName(QPainter &p) {
   // Prefer the road number where OSM has one — UK drivers navigate by A34, not by its name
   QString label = roadName;
@@ -1014,6 +1085,15 @@ void FrogPilotAnnotatedCameraWidget::paintRoadName(QPainter &p) {
 
   if (label.isEmpty()) {
     return;
+  }
+
+  // Road context from mapd, which nothing displayed. Both are 0/false when unknown, so an
+  // unpopulated field simply adds nothing rather than claiming a 0-lane road.
+  if (mapLanes > 0) {
+    label += QString("  ·  %1").arg(QString::number(mapLanes)) + (mapLanes == 1 ? tr(" lane") : tr(" lanes"));
+  }
+  if (mapOneWay) {
+    label += tr("  ·  one-way");
   }
 
   p.save();
@@ -1117,7 +1197,7 @@ void FrogPilotAnnotatedCameraWidget::paintSpeedLimit(QPainter &p) {
 void FrogPilotAnnotatedCameraWidget::paintSpeedLimitSources(QPainter &p) {
   p.save();
 
-  std::function<void(QRect&, QPixmap&, const QString&, const double)> drawSource = [&](QRect &rect, QPixmap &icon, const QString &title, double speedLimitValue) {
+  std::function<void(QRect&, QPixmap&, const QString&, const double, const QString&)> drawSource = [&](QRect &rect, QPixmap &icon, const QString &title, double speedLimitValue, const QString &suffix) {
     bool isActive = QString::fromUtf8(speedLimitSource.c_str()) == title && speedLimitValue != 0;
 
     if (isActive) {
@@ -1140,7 +1220,7 @@ void FrogPilotAnnotatedCameraWidget::paintSpeedLimitSources(QPainter &p) {
       speedText = "N/A";
     }
 
-    QString fullText = tr(title.toUtf8().constData()) + " - " + speedText;
+    QString fullText = tr(title.toUtf8().constData()) + " - " + speedText + suffix;
 
     p.setOpacity(1.0);
     p.drawRoundedRect(rect, 24, 24);
@@ -1169,10 +1249,17 @@ void FrogPilotAnnotatedCameraWidget::paintSpeedLimitSources(QPainter &p) {
   QRect mapboxRect(mapDataRect.x(), mapDataRect.y() + mapDataRect.height() + UI_BORDER_SIZE / 2, 450, 60);
   QRect nextLimitRect(mapboxRect.x(), mapboxRect.y() + mapboxRect.height() + UI_BORDER_SIZE / 2, 450, 60);
 
-  drawSource(dashboardRect, dashboardIcon, "Dashboard", dashboardSpeedLimit * speedConversion);
-  drawSource(mapDataRect, mapDataIcon, "Map Data", mapSpeedLimit * speedConversion);
-  drawSource(mapboxRect, mapboxIcon, "Mapbox", mapboxSpeedLimit * speedConversion);
-  drawSource(nextLimitRect, nextMapsIcon, "Upcoming", nextSpeedLimit * speedConversion);
+  // mapd publishes how far the next limit is, which nothing displayed. 0 means unknown, so
+  // the suffix is omitted rather than reading "in 0 m".
+  QString nextSuffix;
+  if (nextSpeedLimit != 0 && nextMapSpeedLimitDistance > 0) {
+    nextSuffix = QString(" (%1 %2)").arg(QString::number(std::nearbyint(nextMapSpeedLimitDistance * distanceConversion)), distanceUnitShort);
+  }
+
+  drawSource(dashboardRect, dashboardIcon, "Dashboard", dashboardSpeedLimit * speedConversion, "");
+  drawSource(mapDataRect, mapDataIcon, "Map Data", mapSpeedLimit * speedConversion, "");
+  drawSource(mapboxRect, mapboxIcon, "Mapbox", mapboxSpeedLimit * speedConversion, "");
+  drawSource(nextLimitRect, nextMapsIcon, "Upcoming", nextSpeedLimit * speedConversion, nextSuffix);
 
   p.restore();
 }

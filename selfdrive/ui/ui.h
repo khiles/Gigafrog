@@ -72,6 +72,9 @@ typedef struct UIScene {
   cereal::LongitudinalPersonality personality;
 
   float light_sensor = -1;
+  // Derived from light_sensor with hysteresis, see update_state. The onroad HUD dims its text
+  // when set — at night the camera image is dark and full-brightness white glares.
+  bool night = false;
   bool started, ignition, is_metric, recording_audio;
   uint64_t started_frame;
 } UIScene;

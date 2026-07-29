@@ -6,10 +6,14 @@
 
 constexpr int SET_SPEED_NA = 255;
 
+// Percent of normal text alpha used after dark.
+static constexpr int NIGHT_TEXT_DIM = 70;
+
 HudRenderer::HudRenderer() {}
 
 void HudRenderer::updateState(const UIState &s) {
   is_metric = s.scene.is_metric;
+  night = s.scene.night;
   status = s.status;
 
   const SubMaster &sm = *(s.sm);
@@ -41,9 +45,10 @@ void HudRenderer::updateState(const UIState &s) {
 void HudRenderer::draw(QPainter &p, const QRect &surface_rect) {
   p.save();
 
-  // Draw header gradient
+  // Draw header gradient. The gradient exists to keep white text legible over a bright sky;
+  // after dark the image is already dark, so a full-strength scrim just muddies it.
   QLinearGradient bg(0, UI_HEADER_HEIGHT - (UI_HEADER_HEIGHT / 2.5), 0, UI_HEADER_HEIGHT);
-  bg.setColorAt(0, QColor::fromRgbF(0, 0, 0, 0.45));
+  bg.setColorAt(0, QColor::fromRgbF(0, 0, 0, night ? 0.25 : 0.45));
   bg.setColorAt(1, QColor::fromRgbF(0, 0, 0, 0));
   p.fillRect(0, 0, surface_rect.width(), UI_HEADER_HEIGHT, bg);
 
@@ -125,6 +130,12 @@ void HudRenderer::drawCurrentSpeed(QPainter &p, const QRect &surface_rect) {
 void HudRenderer::drawText(QPainter &p, int x, int y, const QString &text, int alpha) {
   QRect real_rect = p.fontMetrics().boundingRect(text);
   real_rect.moveCenter({x, y - real_rect.height() / 2});
+
+  // Every HUD string goes through here, so night dimming is applied once rather than at each
+  // call site. Scaled, not replaced, so an already-faded string stays proportionally faded.
+  if (night) {
+    alpha = alpha * NIGHT_TEXT_DIM / 100;
+  }
 
   p.setPen(QColor(0xff, 0xff, 0xff, alpha));
   p.drawText(real_rect.x(), real_rect.bottom(), text);

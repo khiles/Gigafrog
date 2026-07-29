@@ -28,6 +28,7 @@ private:
   bool is_cruise_set = false;
   bool is_cruise_available = true;
   bool is_metric = false;
+  bool night = false;
   bool v_ego_cluster_seen = false;
   int status = STATUS_DISENGAGED;
 };
