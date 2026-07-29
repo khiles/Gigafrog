@@ -22,6 +22,11 @@ class FrogPilotVCruise:
     self.force_stop_timer = 0
     self.override_force_stop_timer = 0
 
+    # Assigned in update(), but frogpilot_events runs earlier in the same planner cycle,
+    # so they have to exist from construction or the first cycle raises
+    self.slc_offset = 0
+    self.slc_target = 0
+
   def update(self, long_control_active, now, time_validated, v_cruise, v_ego, sm, frogpilot_toggles):
     force_stop = self.frogpilot_planner.frogpilot_cem.stop_light_detected and long_control_active and frogpilot_toggles.force_stops
     force_stop &= self.frogpilot_planner.model_stopped

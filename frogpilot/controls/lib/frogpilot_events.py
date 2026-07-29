@@ -62,18 +62,22 @@ class FrogPilotEvents:
 
   def update_speeding(self, sm, frogpilot_toggles):
     """Warn when over the posted limit. Distinct from EventName.speedTooHigh, which means
-    'faster than the model's training data', not 'faster than the sign'."""
-    frogpilot_plan = sm["frogpilotPlan"]
-    limit = frogpilot_plan.slcSpeedLimit
+    'faster than the model's training data', not 'faster than the sign'.
+
+    Reads the planner directly rather than frogpilotPlan: this runs inside the process that
+    *publishes* that message, so it is not in the SubMaster.
+    """
+    vcruise = self.frogpilot_planner.frogpilot_vcruise
+    limit = vcruise.slc_target
 
     # source is "None" whenever no limit is known, and the limit is unreliable while a
     # change is still being confirmed
-    known = frogpilot_plan.slcSpeedLimitSource != "None" and limit > 0 and not frogpilot_plan.speedLimitChanged
+    known = vcruise.slc.source != "None" and limit > 0 and vcruise.slc.speed_limit_changed_timer <= DT_MDL
     if not (frogpilot_toggles.speed_limit_exceeded_alert and known):
       self.speeding_t = 0.0
       return
 
-    threshold = limit + frogpilot_plan.slcSpeedLimitOffset + frogpilot_toggles.speed_limit_exceeded_margin
+    threshold = limit + vcruise.slc_offset + frogpilot_toggles.speed_limit_exceeded_margin
     over = sm["carState"].vEgo > threshold
 
     self.speeding_since_alert += DT_MDL
@@ -98,7 +102,8 @@ class FrogPilotEvents:
     """
     lead = sm["radarState"].leadOne
     v_ego = sm["carState"].vEgo
-    t_follow = sm["frogpilotPlan"].tFollow
+    # From the planner, not frogpilotPlan — see update_speeding
+    t_follow = self.frogpilot_planner.frogpilot_following.t_follow
 
     eligible = frogpilot_toggles.tailgating_alert and self.frogpilot_planner.tracking_lead
     eligible &= lead.status and v_ego > TAILGATING_MIN_SPEED and t_follow > 0

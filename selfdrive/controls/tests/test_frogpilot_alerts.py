@@ -1,7 +1,12 @@
 """Speeding and tailgating alert logic.
 
-Both run off fields that were already published with no consumer: slcSpeedLimit /
-slcSpeedLimitOffset / slcSpeedLimitSource, and tFollow.
+Both run off values that were already computed with no consumer: the speed limit
+controller's target/offset/source, and the following controller's t_follow.
+
+These are read from the planner objects, NOT from sm["frogpilotPlan"]. frogpilot_events
+runs inside the process that *publishes* frogpilotPlan, so it is not in that SubMaster —
+reading it there raised KeyError on the device. The fakes below mirror the real object
+graph so that mistake cannot be re-made silently.
 """
 import pytest
 
@@ -11,16 +16,26 @@ from openpilot.common.realtime import DT_MDL
 from openpilot.frogpilot.controls.lib import frogpilot_events as E
 
 
-def make_sm(v_ego=20.0, limit=20.0, offset=0.0, source="Map Data", limit_changed=False,
-            t_follow=1.45, lead_d_rel=60.0, lead_status=True, traffic_mode=False):
+# Only what frogpilot_process actually subscribes to. Anything else must come from the
+# planner, so a KeyError here is a real bug rather than a missing fake.
+def make_sm(v_ego=20.0, lead_d_rel=60.0, lead_status=True, traffic_mode=False):
   return {
     "carState": SimpleNamespace(vEgo=v_ego),
     "frogpilotCarState": SimpleNamespace(trafficModeEnabled=traffic_mode),
-    "frogpilotPlan": SimpleNamespace(slcSpeedLimit=limit, slcSpeedLimitOffset=offset,
-                                     slcSpeedLimitSource=source, speedLimitChanged=limit_changed,
-                                     tFollow=t_follow),
     "radarState": SimpleNamespace(leadOne=SimpleNamespace(status=lead_status, dRel=lead_d_rel)),
   }
+
+
+def make_planner(limit=20.0, offset=0.0, source="Map Data", limit_changed=False,
+                 t_follow=1.45, tracking_lead=True):
+  """Mirrors the real graph: planner -> frogpilot_vcruise -> slc, and -> frogpilot_following."""
+  slc = SimpleNamespace(source=source,
+                        speed_limit_changed_timer=(1.0 if limit_changed else 0.0))
+  return SimpleNamespace(
+    frogpilot_vcruise=SimpleNamespace(slc_target=limit, slc_offset=offset, slc=slc),
+    frogpilot_following=SimpleNamespace(t_follow=t_follow),
+    tracking_lead=tracking_lead,
+  )
 
 
 def toggles(**kw):
@@ -38,10 +53,10 @@ class Events:
     self.added.append(name)
 
 
-def make_handler(tracking_lead=True):
+def make_handler(tracking_lead=True, **planner_kwargs):
   handler = E.FrogPilotEvents.__new__(E.FrogPilotEvents)
   handler.events = Events()
-  handler.frogpilot_planner = SimpleNamespace(tracking_lead=tracking_lead)
+  handler.frogpilot_planner = make_planner(tracking_lead=tracking_lead, **planner_kwargs)
   handler.speeding_t = 0.0
   handler.speeding_armed = True
   handler.speeding_since_alert = 0.0
@@ -50,12 +65,26 @@ def make_handler(tracking_lead=True):
   return handler
 
 
-def run_speeding(handler, seconds, **sm_kwargs):
+PLANNER_KEYS = {"limit", "offset", "source", "limit_changed", "t_follow"}
+
+
+def _apply_planner(handler, kwargs):
+  """Planner-owned values live on the planner, not on sm."""
+  planner_kwargs = {k: v for k, v in kwargs.items() if k in PLANNER_KEYS}
+  if planner_kwargs:
+    tracking = handler.frogpilot_planner.tracking_lead
+    handler.frogpilot_planner = make_planner(tracking_lead=tracking, **planner_kwargs)
+  return {k: v for k, v in kwargs.items() if k not in PLANNER_KEYS}
+
+
+def run_speeding(handler, seconds, **kwargs):
+  sm_kwargs = _apply_planner(handler, kwargs)
   for _ in range(int(seconds / DT_MDL)):
     handler.update_speeding(make_sm(**sm_kwargs), toggles())
 
 
-def run_tailgating(handler, seconds, **sm_kwargs):
+def run_tailgating(handler, seconds, **kwargs):
+  sm_kwargs = _apply_planner(handler, kwargs)
   for _ in range(int(seconds / DT_MDL)):
     handler.update_tailgating(make_sm(**sm_kwargs), toggles())
 
@@ -105,7 +134,7 @@ def test_speeding_does_not_chatter_at_the_threshold():
   handler = make_handler()
   for i in range(int(60.0 / DT_MDL)):
     v_ego = 23.0 if (i // int(2.0 / DT_MDL)) % 2 == 0 else 21.5
-    handler.update_speeding(make_sm(v_ego=v_ego, limit=20.0), toggles())
+    handler.update_speeding(make_sm(v_ego=v_ego), toggles())
   assert len(handler.events.added) <= 1
 
 
@@ -121,7 +150,7 @@ def test_speeding_rearms_after_slowing_properly():
 def test_speeding_off_when_toggle_off():
   handler = make_handler()
   for _ in range(int(10.0 / DT_MDL)):
-    handler.update_speeding(make_sm(v_ego=30.0, limit=20.0), toggles(speed_limit_exceeded_alert=False))
+    handler.update_speeding(make_sm(v_ego=30.0), toggles(speed_limit_exceeded_alert=False))
   assert handler.events.added == []
 
 
@@ -186,3 +215,24 @@ def test_events_are_outside_the_random_event_range(event):
   # non-random event inside 17..28 would be treated as a random event
   value = getattr(E.FrogPilotEventName, event)
   assert not (E.RANDOM_EVENT_START <= value <= E.RANDOM_EVENT_END)
+
+
+def test_alerts_only_read_subscribed_services():
+  """The original bug: reading sm["frogpilotPlan"] from inside the process that publishes
+  it. This fails loudly on any service frogpilot_process does not subscribe to."""
+  SUBSCRIBED = {"carControl", "carState", "controlsState", "deviceState", "driverMonitoringState",
+                "gpsLocation", "gpsLocationExternal", "liveParameters", "livePose", "managerState",
+                "modelV2", "onroadEvents", "pandaStates", "radarState", "selfdriveState",
+                "frogpilotCarState", "frogpilotRadarState", "frogpilotSelfdriveState",
+                "frogpilotModelV2", "frogpilotOnroadEvents", "mapdOut"}
+
+  class StrictSM(dict):
+    def __getitem__(self, key):
+      assert key in SUBSCRIBED, f"frogpilot_process does not subscribe to {key!r}"
+      return super().__getitem__(key)
+
+  handler = make_handler()
+  sm = StrictSM(make_sm(v_ego=30.0, lead_d_rel=10.0))
+  for _ in range(int(10.0 / DT_MDL)):
+    handler.update_speeding(sm, toggles())
+    handler.update_tailgating(sm, toggles())
