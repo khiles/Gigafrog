@@ -234,11 +234,36 @@ def test_sissy_taunts_can_never_affect_driving(event):
 
 @pytest.mark.parametrize("trigger", ["lane_hugging", "hard_braking", "cornering",
                                      "tailgating", "speeding", "distracted"])
-def test_every_taunt_trigger_has_ten_lines(trigger):
+def test_every_taunt_trigger_has_all_tiers(trigger):
+  """Escalation picks a tier by name, so a missing or empty tier would silently fall back and
+  that trigger would never reach its worst lines."""
+  from openpilot.selfdrive.selfdrived.events import SISSY_TAUNTS, SISSY_TIERS
+  tiers = SISSY_TAUNTS[trigger]
+  assert set(tiers) == set(SISSY_TIERS)
+  for tier in SISSY_TIERS:
+    assert tiers[tier], f"{trigger}/{tier} is empty"
+    for line_1, _ in tiers[tier]:
+      assert line_1, "line 1 is what gets hashed and spoken; it cannot be empty"
+
+
+def test_tier_escalates_with_offences():
+  from openpilot.frogpilot.controls.lib.frogpilot_events import (
+    SISSY_TIER_THRESHOLDS, sissy_tier_for)
+  assert sissy_tier_for(0) == 0
+  assert sissy_tier_for(SISSY_TIER_THRESHOLDS[0]) == 1
+  assert sissy_tier_for(SISSY_TIER_THRESHOLDS[1]) == 2
+  # monotonic, and never past the last tier
+  seen = [sissy_tier_for(n) for n in range(200)]
+  assert seen == sorted(seen)
+  assert max(seen) == len(SISSY_TIER_THRESHOLDS)
+
+
+def test_every_line_is_unique_across_tiers():
+  """Line 1 is the speech key, so a duplicate across tiers would share one audio file and the
+  tiers would sound identical."""
   from openpilot.selfdrive.selfdrived.events import SISSY_TAUNTS
-  assert len(SISSY_TAUNTS[trigger]) == 10
-  for line_1, line_2 in SISSY_TAUNTS[trigger]:
-    assert line_1, "line 1 is what gets hashed and spoken; it cannot be empty"
+  firsts = [a for tiers in SISSY_TAUNTS.values() for lines in tiers.values() for a, _ in lines]
+  assert len(firsts) == len(set(firsts)), "duplicate line 1 across the pool"
 
 
 def test_praise_pool_exists():

@@ -133,10 +133,12 @@ def main():
   taunts = load_taunts()
 
   if args.list:
-    for trigger, lines in taunts.items():
+    for trigger, tiers in taunts.items():
       print(f"\n{trigger}:")
-      for line_1, line_2 in lines:
-        print(f"  [{taunt_speech_key(line_1)}] {line_1} / {line_2}")
+      for tier, lines in tiers.items():
+        print(f"  {tier}:")
+        for line_1, line_2 in lines:
+          print(f"    [{taunt_speech_key(line_1)}] {line_1} / {line_2}")
     if platform.system() == "Darwin":
       print("\nVoices: say -v '?'")
     return
@@ -158,28 +160,29 @@ def main():
 
   rendered = skipped = failed = stale_text = 0
   keys = set()
-  for trigger, lines in taunts.items():
-    for line_1, line_2 in lines:
-      key = taunt_speech_key(line_1)
-      keys.add(key)
-      out_path = out_dir / f"{key}.wav"
+  for trigger, tiers in taunts.items():
+    for tier, lines in tiers.items():
+      for line_1, line_2 in lines:
+        key = taunt_speech_key(line_1)
+        keys.add(key)
+        out_path = out_dir / f"{key}.wav"
 
-      spoken = f"{line_1}. {line_2}"
+        spoken = f"{line_1}. {line_2}"
 
-      if out_path.exists() and not args.force:
-        if manifest.get(key) == spoken:
-          skipped += 1
-          continue
-        stale_text += 1   # same line 1, different line 2 — the audio no longer matches
+        if out_path.exists() and not args.force:
+          if manifest.get(key) == spoken:
+            skipped += 1
+            continue
+          stale_text += 1   # same line 1, different line 2 — the audio no longer matches
 
-      try:
-        render(spoken, out_path, args.voice)
-        manifest[key] = spoken
-        rendered += 1
-        print(f"  {key}  {line_1[:48]}")
-      except subprocess.CalledProcessError as exc:
-        failed += 1
-        print(f"  FAILED {key}: {exc}")
+        try:
+          render(spoken, out_path, args.voice)
+          manifest[key] = spoken
+          rendered += 1
+          print(f"  {key}  {line_1[:48]}")
+        except subprocess.CalledProcessError as exc:
+          failed += 1
+          print(f"  FAILED {key}: {exc}")
 
   # Lines that were edited leave their old audio behind; say so rather than silently hoarding
   stale = [p for p in out_dir.glob("*.wav") if p.stem not in keys]

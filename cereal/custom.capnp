@@ -243,6 +243,10 @@ struct FrogPilotPlan @0xf98d843bfd7004a3 {
   # the planner but needed by the alert text, which is built in selfdrived — this is the
   # only way across, since selfdrived can read frogpilotPlan and the planner cannot.
   sissyOffenceCount @43 :UInt16;
+  # Which taunt tier to draw from, escalating with the drive's total offences. Worked out
+  # in the planner because that is where the offences are counted; needed in selfdrived
+  # because that is where the alert text is built.
+  sissyTier @44 :UInt8;
 }
 
 struct FrogPilotRadarState @0xb86e6369214c01c8 {

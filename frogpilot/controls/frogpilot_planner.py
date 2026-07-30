@@ -194,6 +194,7 @@ class FrogPilotPlanner:
     frogpilotPlan.measuredLaneWidth = float(self.frogpilot_lane_centering.lane_width)
     frogpilotPlan.laneTrimLateralAccel = float(self.frogpilot_lane_centering.trim_lateral_accel)
     frogpilotPlan.sissyOffenceCount = int(self.frogpilot_events.sissy_offence_count)
+    frogpilotPlan.sissyTier = int(self.frogpilot_events.sissy_tier)
 
     frogpilotPlan.corneringAcceleration = float(self.frogpilot_pose.cornering_acceleration)
     frogpilotPlan.roadGradient = float(self.frogpilot_pose.road_gradient)

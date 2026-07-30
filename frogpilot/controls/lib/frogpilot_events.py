@@ -72,6 +72,19 @@ SISSY_PRAISE_REPEAT = 600.0       # s between compliments, so it stays rare enou
 # suppression while a real alert is on screen has to keep working at every setting.
 SISSY_COOLDOWN_FLOOR = 8.0        # s, absolute minimum between taunts at any cruelty
 
+# Escalation. Tier index into SISSY_TIERS in events.py, chosen by the running offence total for
+# the drive: below the first number it stays mild, past the second it is brutal for the rest of
+# the drive unless you earn it back.
+SISSY_TIER_THRESHOLDS = (3, 8)
+# A compliment walks the total back, so a genuinely good stretch de-escalates rather than leaving
+# you branded for one bad junction an hour ago.
+SISSY_PRAISE_FORGIVENESS = 3
+
+
+def sissy_tier_for(total):
+  """Tier index for a drive's running offence total."""
+  return sum(total >= t for t in SISSY_TIER_THRESHOLDS)
+
 
 def sissy_scale(cruelty):
   """Return (threshold_scale, cooldown_scale) for a 1-5 cruelty setting."""
@@ -117,6 +130,8 @@ class FrogPilotEvents:
     # themselves; the count of whichever trigger just fired is published for the alert text.
     self.sissy_counts = {trigger: 0 for trigger in SISSY_EVENTS}
     self.sissy_offence_count = 0
+    self.sissy_total = 0
+    self.sissy_tier = 0
     self.sissy_clean_t = 0.0
     # Seeded past the repeat like the taunt cooldowns above, so the first compliment waits
     # only on the clean-time rather than on a full repeat period as well
@@ -198,11 +213,15 @@ class FrogPilotEvents:
         self.sissy_since_taunt = 0.0
         self.sissy_since_praise = 0.0
         self.sissy_clean_t = 0.0
+        self.sissy_total = max(self.sissy_total - SISSY_PRAISE_FORGIVENESS, 0)
+        self.sissy_tier = sissy_tier_for(self.sissy_total)
       return
 
     trigger = random.choice(ready)
     self.sissy_counts[trigger] += 1
     self.sissy_offence_count = self.sissy_counts[trigger]
+    self.sissy_total += 1
+    self.sissy_tier = sissy_tier_for(self.sissy_total)
     self.events.add(SISSY_EVENTS[trigger])
     self.sissy_since_taunt = 0.0
     self.sissy_since_trigger[trigger] = 0.0
