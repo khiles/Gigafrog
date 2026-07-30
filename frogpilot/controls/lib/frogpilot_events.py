@@ -55,6 +55,30 @@ SISSY_EVENTS = {
   "distracted": FrogPilotEventName.sissyDistracted,
 }
 
+# Explicit set, not an ordinal range. A range would silently capture any enumerant appended
+# after the taunts, which is exactly the trap RANDOM_EVENT_START..END already sets.
+SISSY_OFFENCE_EVENTS = frozenset(SISSY_EVENTS.values())
+
+# Praise is deliberately not in SISSY_EVENTS: it is not an offence, must not be counted as one,
+# and must not be picked by the offence selection below.
+SISSY_PRAISE_EVENT = FrogPilotEventName.sissyPraise
+SISSY_PRAISE_CLEAN_TIME = 300.0   # s of clean driving before it says anything nice
+SISSY_PRAISE_REPEAT = 600.0       # s between compliments, so it stays rare enough to sting
+
+# Cruelty dial, 1-5. Scales thresholds down and cooldowns down together.
+#
+# The cooldown floor is not negotiable: at maximum this should be relentless, not continuous. A
+# taunt every couple of seconds stops being a joke and becomes a genuine distraction, and the
+# suppression while a real alert is on screen has to keep working at every setting.
+SISSY_COOLDOWN_FLOOR = 8.0        # s, absolute minimum between taunts at any cruelty
+
+
+def sissy_scale(cruelty):
+  """Return (threshold_scale, cooldown_scale) for a 1-5 cruelty setting."""
+  cruelty = min(max(float(cruelty), 1.0), 5.0)
+  frac = (cruelty - 1.0) / 4.0
+  return 1.0 - 0.5 * frac, 1.0 - 0.75 * frac
+
 class FrogPilotEvents:
   def __init__(self, FrogPilotPlanner, error_log, ThemeManager):
     self.frogpilot_planner = FrogPilotPlanner
@@ -89,6 +113,14 @@ class FrogPilotEvents:
     self.sissy_lane_t = 0.0
     self.sissy_since_taunt = SISSY_GLOBAL_COOLDOWN
     self.sissy_since_trigger = {trigger: SISSY_REPEAT for trigger in SISSY_EVENTS}
+    # Per-drive tallies. This object is rebuilt on every onroad transition, so they reset by
+    # themselves; the count of whichever trigger just fired is published for the alert text.
+    self.sissy_counts = {trigger: 0 for trigger in SISSY_EVENTS}
+    self.sissy_offence_count = 0
+    self.sissy_clean_t = 0.0
+    # Seeded past the repeat like the taunt cooldowns above, so the first compliment waits
+    # only on the clean-time rather than on a full repeat period as well
+    self.sissy_since_praise = SISSY_PRAISE_REPEAT
 
     self.error_log = error_log
 
@@ -100,11 +132,13 @@ class FrogPilotEvents:
     because this runs inside the process that publishes that message.
     """
     self.sissy_since_taunt += DT_MDL
+    self.sissy_since_praise += DT_MDL
     for trigger in self.sissy_since_trigger:
       self.sissy_since_trigger[trigger] += DT_MDL
 
     if not frogpilot_toggles.sissy_mode:
       self.sissy_lane_t = 0.0
+      self.sissy_clean_t = 0.0
       return
 
     car_state = sm["carState"]
@@ -113,25 +147,29 @@ class FrogPilotEvents:
       self.sissy_lane_t = 0.0
       return
 
+    thresh_scale, cooldown_scale = sissy_scale(frogpilot_toggles.sissy_cruelty)
+    global_cooldown = max(SISSY_GLOBAL_COOLDOWN * cooldown_scale, SISSY_COOLDOWN_FLOOR)
+    repeat = max(SISSY_REPEAT * cooldown_scale, SISSY_COOLDOWN_FLOOR)
+
     planner = self.frogpilot_planner
 
     # Lane hugging has to be sustained — a single frame off centre is a bend, not a habit
     centering = planner.frogpilot_lane_centering
-    if centering.lane_offset_valid and abs(centering.lane_offset_filtered) > SISSY_LANE_OFFSET:
+    if centering.lane_offset_valid and abs(centering.lane_offset_filtered) > SISSY_LANE_OFFSET * thresh_scale:
       self.sissy_lane_t += DT_MDL
     else:
       self.sissy_lane_t = 0.0
 
     candidates = []
-    if self.sissy_lane_t >= SISSY_LANE_SUSTAIN:
+    if self.sissy_lane_t >= SISSY_LANE_SUSTAIN * thresh_scale:
       candidates.append("lane_hugging")
-    if car_state.aEgo <= SISSY_BRAKING_ACCEL:
+    if car_state.aEgo <= SISSY_BRAKING_ACCEL * thresh_scale:
       candidates.append("hard_braking")
-    if abs(planner.frogpilot_pose.cornering_acceleration) >= SISSY_CORNERING_ACCEL:
+    if abs(planner.frogpilot_pose.cornering_acceleration) >= SISSY_CORNERING_ACCEL * thresh_scale:
       candidates.append("cornering")
-    if self.tailgating_t >= TAILGATING_SUSTAIN:
+    if self.tailgating_t >= TAILGATING_SUSTAIN * thresh_scale:
       candidates.append("tailgating")
-    if self.speeding_t >= SPEEDING_SUSTAIN:
+    if self.speeding_t >= SPEEDING_SUSTAIN * thresh_scale:
       candidates.append("speeding")
 
     # Only the early distraction window. Once awareness has decayed past this the real driver
@@ -140,14 +178,31 @@ class FrogPilotEvents:
     if dm.isActiveMode and dm.isDistracted and dm.awarenessStatus > SISSY_DM_MIN_AWARENESS:
       candidates.append("distracted")
 
-    if not candidates or self.sissy_since_taunt < SISSY_GLOBAL_COOLDOWN:
+    # A clean stretch is one with nothing to complain about at all, not merely a quiet cooldown,
+    # so any live offence resets it even when the taunt itself is rate limited.
+    if candidates:
+      self.sissy_clean_t = 0.0
+    else:
+      self.sissy_clean_t += DT_MDL
+
+    if self.sissy_since_taunt < global_cooldown:
       return
 
-    ready = [t for t in candidates if self.sissy_since_trigger[t] >= SISSY_REPEAT]
+    ready = [t for t in candidates if self.sissy_since_trigger[t] >= repeat]
+
     if not ready:
+      # Nothing to criticise — reward a genuinely long clean run, rarely
+      if (self.sissy_clean_t >= SISSY_PRAISE_CLEAN_TIME * thresh_scale
+          and self.sissy_since_praise >= SISSY_PRAISE_REPEAT):
+        self.events.add(SISSY_PRAISE_EVENT)
+        self.sissy_since_taunt = 0.0
+        self.sissy_since_praise = 0.0
+        self.sissy_clean_t = 0.0
       return
 
     trigger = random.choice(ready)
+    self.sissy_counts[trigger] += 1
+    self.sissy_offence_count = self.sissy_counts[trigger]
     self.events.add(SISSY_EVENTS[trigger])
     self.sissy_since_taunt = 0.0
     self.sissy_since_trigger[trigger] = 0.0

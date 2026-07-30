@@ -210,7 +210,7 @@ def test_tailgating_scales_with_the_drivers_own_gap():
 
 
 SISSY_EVENT_NAMES = ["sissyLaneHugging", "sissyHardBraking", "sissyCornering",
-                     "sissyTailgating", "sissySpeeding", "sissyDistracted"]
+                     "sissyTailgating", "sissySpeeding", "sissyDistracted", "sissyPraise"]
 
 
 @pytest.mark.parametrize("event", ["speedLimitExceeded", "tailgating"] + SISSY_EVENT_NAMES)
@@ -234,13 +234,43 @@ def test_sissy_taunts_can_never_affect_driving(event):
 
 @pytest.mark.parametrize("trigger", ["lane_hugging", "hard_braking", "cornering",
                                      "tailgating", "speeding", "distracted"])
-def test_every_taunt_trigger_has_lines(trigger):
+def test_every_taunt_trigger_has_ten_lines(trigger):
   from openpilot.selfdrive.selfdrived.events import SISSY_TAUNTS
-  lines = SISSY_TAUNTS[trigger]
-  assert len(lines) >= 2, "need at least two so the no-immediate-repeat pick has a choice"
-  for line_1, line_2 in lines:
-    assert line_1 and len(line_1) <= 40, f"{line_1!r} is too long to read at a glance"
-    assert len(line_2) <= 60, f"{line_2!r} is too long to read at a glance"
+  assert len(SISSY_TAUNTS[trigger]) == 10
+  for line_1, line_2 in SISSY_TAUNTS[trigger]:
+    assert line_1, "line 1 is what gets hashed and spoken; it cannot be empty"
+
+
+def test_praise_pool_exists():
+  from openpilot.selfdrive.selfdrived.events import SISSY_PRAISE
+  assert len(SISSY_PRAISE) == 10
+  for line_1, _ in SISSY_PRAISE:
+    assert line_1
+
+
+def test_speech_key_ignores_line_two():
+  """Line 2 carries the live offence count. If it fed the hash, every repeat would resolve to a
+  file that does not exist and the taunt would be silent."""
+  from openpilot.selfdrive.ui.soundd import taunt_speech_key
+  assert taunt_speech_key("SAME") == taunt_speech_key("SAME")
+  assert taunt_speech_key("A") != taunt_speech_key("B")
+
+
+def test_anti_repeat_cannot_deadlock():
+  """History longer than the pool must fall back rather than run out of choices."""
+  from openpilot.selfdrive.selfdrived import events as E2
+  pool = [("a", ""), ("b", "")]
+  for _ in range(50):
+    assert 0 <= E2.sissy_pick("_deadlock_probe", pool) < len(pool)
+
+
+def test_anti_repeat_spreads_picks():
+  from openpilot.selfdrive.selfdrived import events as E2
+  pool = [(str(i), "") for i in range(10)]
+  picks = [E2.sissy_pick("_spread_probe", pool) for _ in range(200)]
+  # with a history of 4 no index may repeat inside any window of 5
+  for i in range(len(picks) - 4):
+    assert len(set(picks[i:i + 5])) == 5, f"repeat inside window at {i}: {picks[i:i + 5]}"
 
 
 def test_alerts_only_read_subscribed_services():

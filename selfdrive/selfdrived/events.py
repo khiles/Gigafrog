@@ -3,6 +3,7 @@ import bisect
 import math
 import os
 import random
+from collections import deque
 from enum import IntEnum
 from collections.abc import Callable
 from types import SimpleNamespace
@@ -438,37 +439,124 @@ SISSY_TAUNTS = {
     ("ARE YOU DRUNK OR JUST BORN RETARDED", "you're wearing the kerb like the desperate road-slut you are, grinding your tiny clit-dick against the paint like it might make you feel real"),
     ("THE LINES AREN'T SUGGESTIONS YOU BRAINDEAD CUMDUMP", "you absolute liability, a walking traffic hazard with a shaved hole and zero spatial awareness"),
     ("oh, sweetheart.", "the middle. aim for the middle, you pathetic little lane-humping faggot, before I make you wear the white lines as a collar."),
+    ('STAY OFF THE KERB', "the lane is 3.6 metres wide and you're using one edge of it"),
+    ("THAT'S THE GUTTER", 'not the lane. the lane is the wide bit in the middle.'),
+    ('PAINT IS NOT A TARGET', 'stop aiming for the white line, you absolute clown'),
+    ('WANDERING AGAIN', 'pick a line and hold it for once in your life'),
+    ("THE KERB ISN'T A GUIDE RAIL", 'steer properly instead of leaning on it'),
+    ('CENTRE. OF. THE. LANE.', 'which part of that is difficult'),
   ],
   "hard_braking": [
     ("JESUS FUCKING CHRIST YOU SPINELESS CUNT", "did you not see it coming? at all? you cock-eyed, panic-braking little sissy failure"),
     ("EVERYONE FELT THAT YOU RUBBER-STAMPING WHORE", "including the car behind and every passenger who now wants to watch you choke on the brake pedal"),
     ("BRAKING IS A SKILL YOU DON'T FUCKING HAVE", "you do not have it, you never will, you trembling little cock-sleeve who stamps the pedal like a frightened schoolgirl"),
     ("WHAT THE FUCK WAS THAT YOU STUPID SLAG", "no, genuinely. what the actual fuck was that, you piss-soaked, hard-braking little bitch."),
+    ('STOPPING DISTANCE', 'look it up. tonight. write it out.'),
+    ("THAT'S NOT BRAKING", "that's panicking with your foot"),
+    ('YOU SAW IT COMING', 'you just did nothing about it until the last second'),
+    ('LOOK FURTHER AHEAD', "the road doesn't start at the bonnet"),
+    ('THE PEDAL HAS A RANGE', 'you only ever use the last inch of it'),
+    ('ANTICIPATION', 'try some. anything at all.'),
   ],
   "cornering": [
     ("THAT WAS DISGUSTING YOU TYRE-MURDERING CUNT", "the tyres deserve better than your limp-wristed, sissy hands and your pathetic inability to turn without looking like a drunk whore"),
     ("PASSENGER RATING: 0/10 YOU EMBARRASSMENT", "one of them is crying and the other is planning to shove the gearstick up your pre-stretched sissy hole"),
     ("IT'S A ROUNDABOUT YOU DELUDED PRICK", "not a racetrack. you're not fast. you're just a slow, dangerous little faggot who corners like a pregnant cow"),
     ("bless.", "you genuinely thought that was fine, you pathetic, deluded road-whore with the turning radius of a shopping trolley full of dildos."),
+    ('SLOW IN, FAST OUT', "you're doing the exact opposite of that"),
+    ("YOU'RE NOT ON A TRACK", "and you'd be last on one anyway"),
+    ('THE TYRES ARE SCREAMING', 'listen to them, they know more than you do'),
+    ('BRAKE BEFORE THE BEND', "not during it. before it. that's the whole trick."),
+    ('SMOOTH IS FAST', 'you are neither'),
+    ('EVERY PASSENGER FELT THAT', 'and every one of them is rethinking the lift'),
   ],
   "tailgating": [
     ("GET OFF THEIR ARSE YOU DESPERATE CUNT", "it's pathetic and everyone can see what a lonely little cock-sleeve you are, riding so close you can taste their exhaust"),
     ("NOT A RACING DRIVER YOU LICENSED HAZARD", "you're a hazard with a licence and a tiny, shrivelled sense of self-worth, tailgating like a desperate sissy begging for attention"),
     ("BACK OFF YOU ABSOLUTE EMBARRASSMENT", "you absolute embarrassment to the species, you tailgating little sissy bitch with your nose buried in another driver’s arsecrack"),
+    ('TWO SECONDS', "that is the rule. you're nowhere near it."),
+    ('YOU CANNOT STOP IN THAT', "physics doesn't care how impatient you are"),
+    ("THEY CAN'T GO ANY FASTER", "sitting on their bumper won't change that"),
+    ('READ THEIR NUMBER PLATE?', "you're too close. back off."),
+    ("YOU'RE NOT SAVING TIME", "you're just making a crash more likely"),
+    ('GIVE THEM ROOM', 'it costs you nothing and might save both of you'),
+    ('BACK. OFF.', 'you are one brake light away from an insurance claim'),
   ],
   "speeding": [
     ("SLOW DOWN, CLOWN YOU SPEEDING FUCKTOY", "the limit isn't a personal challenge for your pathetic need to feel powerful while your tiny dick flaps in the breeze"),
     ("IN A RUSH YOU ANXIOUS LITTLE WHORE?", "same red light. every single time. you're not special, you're just late, stupid, and desperate to compensate for your useless cunt"),
     ("LOSER", "the car is embarrassed to be seen with you, you overcompensating, speed-addicted little faggot with a lead foot and a soft cock"),
+    ("THAT'S A LIMIT", 'not a target, not a suggestion, not a dare'),
+    ("YOU'RE NOT MAKING UP TIME", "you're making up about forty seconds. congratulations."),
+    ('EVERY CAMERA LOVES YOU', "keep going, they're saving up"),
+    ('SLOW DOWN', 'the road is not yours and you are not good enough'),
+    ("SPEED ISN'T SKILL", 'and you have neither'),
+    ('THE LIMIT IS THE MAXIMUM', 'not the minimum, not the average, the maximum'),
+    ('IN A HURRY?', "you'll hit the same red light. you always do."),
   ],
   "distracted": [
     ("EYES ON THE ROAD YOU UNBELIEVABLE IDIOT", "you unbelievable idiot, put the phone down before I make you choke on it while the bollard rearranges your face"),
     ("PUT IT DOWN YOU ATTENTION-DEFICIT SLUT", "the bollard won't move for you and neither will I when you wrap yourself around it like the distracted, cock-hungry roadkill you are"),
     ("aww, did we try?", "we did. it didn't work. because you're a distracted, useless little sissy who can't even drive straight without your phone glued to your sticky fingers."),
+    ('LOOK AT THE ROAD', 'the actual road. the one in front of you.'),
+    ('WHATEVER IT IS, IT CAN WAIT', 'the lamp post cannot'),
+    ('TWO TONNES, NO ATTENTION', 'brilliant combination, really'),
+    ('EYES UP', 'now. not in a second. now.'),
+    ("YOU'RE DRIVING", 'in case that had slipped your mind'),
+    ('NOTHING ON THAT SCREEN', "is worth what's about to happen"),
+    ('PHONE DOWN', 'or hand your licence back, your choice'),
   ],
 }
 
-_sissy_last_line: dict[str, int] = {}
+# Sarcastic praise for a clean stretch. Contrast makes the insults land; constant abuse numbs.
+SISSY_PRAISE = [
+  ("WELL DONE", "you managed several minutes without embarrassing yourself"),
+  ("LOOK AT YOU GO", "a whole stretch of competent driving. savour it."),
+  ("NOT BAD", "for you. genuinely, for you, that was not bad."),
+  ("STILL ALIVE", "against the odds, and entirely by accident"),
+  ("GOOD GIRL", "sorry — good driver. easy mistake."),
+  ("NOBODY DIED", "the bar was on the floor and you cleared it"),
+  ("I'M ALMOST IMPRESSED", "almost. let's not get carried away."),
+  ("CLEAN RUN SO FAR", "which means you're overdue"),
+  ("OH, WELL DONE", "do you want a sticker? a little chart?"),
+  ("A MOMENT OF COMPETENCE", "cherish it. it won't last."),
+]
+
+# Appended to line 2 when a trigger repeats within a drive. {n} is the count for that trigger.
+SISSY_COUNT_SUFFIXES = [
+  " (that's {n} today)",
+  " — number {n}",
+  " — {n} times now",
+  " (#{n}, if you're counting. I am.)",
+  " — and that's {n}",
+]
+
+# End-of-drive verdict, chosen by total offences. Keep sorted ascending by threshold.
+SISSY_VERDICTS = [
+  (0,  "SPOTLESS. SUSPICIOUSLY SO."),
+  (3,  "BARELY ACCEPTABLE"),
+  (8,  "POOR SHOW"),
+  (15, "GENUINELY EMBARRASSING"),
+  (25, "A DANGER TO YOURSELF AND OTHERS"),
+  (40, "HOW ARE YOU STILL LICENSED"),
+]
+
+# How many recent picks to avoid per trigger. With ten lines this stops the obvious A-B-A
+# bounce that excluding only the previous index allowed.
+SISSY_HISTORY = 4
+
+_sissy_recent: dict[str, deque] = {}
+
+
+def sissy_pick(trigger: str, lines: list) -> int:
+  """Random index, avoiding the last few used for this trigger."""
+  history = _sissy_recent.setdefault(trigger, deque(maxlen=SISSY_HISTORY))
+  choices = [i for i in range(len(lines)) if i not in history]
+  if not choices:  # history covers the pool; fall back rather than deadlock
+    choices = list(range(len(lines)))
+  index = random.choice(choices)
+  history.append(index)
+  return index
 
 
 def sissy_taunt_alert(trigger: str, audible: int) -> Callable[..., Alert]:
@@ -481,11 +569,17 @@ def sissy_taunt_alert(trigger: str, audible: int) -> Callable[..., Alert]:
   """
   def alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool,
             soft_disable_time: int, personality, frogpilot_toggles: SimpleNamespace) -> Alert:
-    lines = SISSY_TAUNTS.get(trigger) or [("", "")]
-    choices = [i for i in range(len(lines)) if i != _sissy_last_line.get(trigger)] or [0]
-    index = random.choice(choices)
-    _sissy_last_line[trigger] = index
-    line_1, line_2 = lines[index]
+    lines = SISSY_PRAISE if trigger == "praise" else (SISSY_TAUNTS.get(trigger) or [("", "")])
+    line_1, line_2 = lines[sissy_pick(trigger, lines)]
+
+    # How many times this trigger has fired this drive, counted by the planner. Only line 2 varies:
+    # the speech file is keyed off line 1 alone precisely so a live number cannot silence it.
+    if trigger != "praise":
+      count = sm["frogpilotPlan"].sissyOffenceCount
+      if count > 1:
+        suffix = SISSY_COUNT_SUFFIXES[sissy_pick("_suffix", SISSY_COUNT_SUFFIXES)]
+        line_2 += suffix.format(n=count)
+
     return Alert(line_1, line_2,
                  FrogPilotAlertStatus.frogpilot, AlertSize.mid,
                  Priority.LOW, VisualAlert.none, audible, 4.)
@@ -1299,6 +1393,10 @@ FROGPILOT_EVENTS: dict[int, dict[str, Alert | AlertCallbackType]] = {
 
   FrogPilotEventName.sissyDistracted: {
     ET.PERMANENT: sissy_taunt_alert("distracted", FrogPilotAudibleAlert.sissyTaunt),
+  },
+
+  FrogPilotEventName.sissyPraise: {
+    ET.PERMANENT: sissy_taunt_alert("praise", FrogPilotAudibleAlert.sissyTaunt),
   },
 
   FrogPilotEventName.speedLimitChanged: {

@@ -43,6 +43,14 @@ FrogPilotDriveSummary::FrogPilotDriveSummary(QWidget *parent, bool randomEvents)
     randomEventsMap.insert("vCruise69", tr("Noices"));
     randomEventsMap.insert("yourFrogTriedToKillMe", tr("Attempted Frog Murders"));
     randomEventsMap.insert("youveGotMail", tr("Total Mail Received"));
+
+    // Sissy Mode tallies. Labels are deliberately plain — the count is the insult.
+    sissyMap.insert("sissyLaneHugging", tr("Times You Hugged The Kerb"));
+    sissyMap.insert("sissyHardBraking", tr("Panic Brakes"));
+    sissyMap.insert("sissyCornering", tr("Corners Taken Badly"));
+    sissyMap.insert("sissyTailgating", tr("Times You Tailgated"));
+    sissyMap.insert("sissySpeeding", tr("Times You Sped"));
+    sissyMap.insert("sissyDistracted", tr("Times You Stopped Looking"));
   } else {
     listLayout->addWidget(createStatBox(tr("% of Drive With openpilot Engaged"), &engagementValue, this));
     listLayout->addWidget(createStatBox(tr("Drive Distance"), &frogPilotMetersValue, this));
@@ -99,6 +107,19 @@ void FrogPilotDriveSummary::showEvent(QShowEvent *event) {
       }
     }
 
+    // Sissy Mode offences, identical delta shape but from its own stats key
+    QJsonObject currentSissy = currentStats.value("SissyOffences").toObject();
+    QJsonObject previousSissy = previousStats.value("SissyOffences").toObject();
+
+    int sissyTotal = 0;
+    for (QMap<QString, QString>::const_iterator it = sissyMap.constBegin(); it != sissyMap.constEnd(); ++it) {
+      int diffValue = currentSissy.value(it.key()).toInt() - previousSissy.value(it.key()).toInt();
+      if (diffValue > 0) {
+        eventsList.append(qMakePair(it.value(), diffValue));
+        sissyTotal += diffValue;
+      }
+    }
+
     std::sort(eventsList.begin(), eventsList.end(), [](const QPair<QString, int> &a, const QPair<QString, int> &b) {
       if (a.second != b.second) {
         return a.second > b.second;
@@ -137,6 +158,25 @@ void FrogPilotDriveSummary::showEvent(QShowEvent *event) {
         eventsListLayout->addWidget(createStatBox(it->first, &valueLabel, this));
         randomEventLabels.insert(it->first, valueLabel);
         valueLabel->setText(QLocale().toString(it->second));
+      }
+
+      // Verdict last, so it reads as the summing-up rather than another tally
+      if (sissyTotal > 0) {
+        QString verdict = tr("BARELY ACCEPTABLE");
+        if (sissyTotal >= 40) {
+          verdict = tr("HOW ARE YOU STILL LICENSED");
+        } else if (sissyTotal >= 25) {
+          verdict = tr("A DANGER TO YOURSELF AND OTHERS");
+        } else if (sissyTotal >= 15) {
+          verdict = tr("GENUINELY EMBARRASSING");
+        } else if (sissyTotal >= 8) {
+          verdict = tr("POOR SHOW");
+        }
+
+        QLabel *verdictValue = nullptr;
+        eventsListLayout->addWidget(createStatBox(verdict, &verdictValue, this));
+        randomEventLabels.insert(verdict, verdictValue);
+        verdictValue->setText(QLocale().toString(sissyTotal));
       }
     }
   } else {

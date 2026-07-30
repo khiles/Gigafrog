@@ -8,7 +8,7 @@ from openpilot.selfdrive.selfdrived.state import ACTIVE_STATES
 from openpilot.selfdrive.ui.soundd import FrogPilotAudibleAlert
 
 from openpilot.frogpilot.common.frogpilot_utilities import clean_model_name
-from openpilot.frogpilot.controls.lib.frogpilot_events import RANDOM_EVENT_END, RANDOM_EVENT_START
+from openpilot.frogpilot.controls.lib.frogpilot_events import RANDOM_EVENT_END, RANDOM_EVENT_START, SISSY_OFFENCE_EVENTS
 from openpilot.frogpilot.controls.lib.weather_checker import WEATHER_CATEGORIES
 
 class FrogPilotTracking:
@@ -30,6 +30,7 @@ class FrogPilotTracking:
     self.tracked_time = 0
 
     self.previous_random_events = set()
+    self.previous_sissy_events = set()
 
     self.previous_alert = None
     self.previous_sound = FrogPilotAudibleAlert.none
@@ -134,6 +135,20 @@ class FrogPilotTracking:
         self.frogpilot_stats["RandomEvents"] = total_random_events
 
     self.previous_random_events = current_random_events
+
+    # Same diffing shape as the random events above, so an offence counts once per firing
+    # rather than once per frame it is present. Keyed off an explicit event set rather than
+    # an ordinal range: a range here would silently capture anything appended after the
+    # taunts, which is exactly the trap the random event range already sets.
+    current_sissy = {event for event in self.frogpilot_events.events.names if event in SISSY_OFFENCE_EVENTS}
+    new_sissy = current_sissy - self.previous_sissy_events
+    if new_sissy:
+      offences = self.frogpilot_stats.get("SissyOffences", {})
+      for event in new_sissy:
+        name = FROGPILOT_EVENT_NAME[event]
+        offences[name] = offences.get(name, 0) + 1
+      self.frogpilot_stats["SissyOffences"] = offences
+    self.previous_sissy_events = current_sissy
 
     if sm["carState"].standstill:
       self.frogpilot_stats["StandstillTime"] = self.frogpilot_stats.get("StandstillTime", 0) + DT_MDL

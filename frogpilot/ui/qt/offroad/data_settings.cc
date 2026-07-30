@@ -668,13 +668,21 @@ void FrogPilotDataPanel::updateStatsLabels(FrogPilotListWidget *labelsList) {
     {"OverrideTime", {tr("Time Overriding openpilot"), "timePercent"}},
     {"PersonalityTimes", {tr("Driving Personalities:"), "parent"}},
     {"RandomEvents", {tr("Random Events:"), "parent"}},
+    {"SissyOffences", {tr("Sissy Mode Offences:"), "parent"}},
     {"StandstillTime", {tr("Time Stopped"), "timePercent"}},
     {"StopLightTime", {tr("Time Spent at Stoplights"), "timePercent"}},
     {"TrackedTime", {tr("Total Time Tracked"), "time"}},
     {"WeatherTimes", {tr("Time Driven (Weather):"), "parent"}}
   };
 
+  // Also used for the SissyOffences group's sub-labels; unknown keys fall back to the raw name
   static QMap<QString, QString> randomEventsMap = {
+    {"sissyLaneHugging", tr("Times You Hugged The Kerb")},
+    {"sissyHardBraking", tr("Panic Brakes")},
+    {"sissyCornering", tr("Corners Taken Badly")},
+    {"sissyTailgating", tr("Times You Tailgated")},
+    {"sissySpeeding", tr("Times You Sped")},
+    {"sissyDistracted", tr("Times You Stopped Looking")},
     {"accel30", tr("UwUs")},
     {"accel35", tr("Loch Ness Encounters")},
     {"accel40", tr("Visits to 1955")},

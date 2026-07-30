@@ -14,9 +14,10 @@ Why this runs here and not on the car: the device has no speech synthesiser, and
 onto AGNOS is fragile across updates. Rendering on a machine that already has a good one is both
 better sounding and less to break. The cost is that you re-run this after editing a line.
 
-Naming: each file is named by a hash of the exact two lines of text, matching taunt_speech_key in
-selfdrive/ui/soundd.py. That is what lets the taunt pool stay freely editable — soundd hashes the
-text it is about to display and plays the matching file, and a line with no file is simply silent.
+Naming: each file is named by a hash of LINE 1 ONLY, matching taunt_speech_key in
+selfdrive/ui/soundd.py. Line 2 carries live values such as the running offence count, so hashing
+it would change the key every firing and leave the line silent. Only line 1 is spoken, which also
+keeps the clip short enough to finish before the 4s alert clears. A line with no file is silent.
 
 Output format is forced to mono 16-bit 48kHz because soundd asserts exactly that and will refuse
 anything else.
@@ -42,9 +43,12 @@ ASSET_DIR = REPO_ROOT / "frogpilot/assets/taunt_speech"
 sys.path.append(str(REPO_ROOT))
 
 
-def taunt_speech_key(line_1: str, line_2: str) -> str:
-  """Must stay identical to taunt_speech_key in selfdrive/ui/soundd.py."""
-  return hashlib.sha1(f"{line_1}\n{line_2}".encode()).hexdigest()[:16]
+def taunt_speech_key(line_1: str) -> str:
+  """Must stay identical to taunt_speech_key in selfdrive/ui/soundd.py.
+
+  Line 1 only — line 2 carries live values (the running offence count), so including it would
+  change the key every firing and leave the line silent."""
+  return hashlib.sha1(line_1.encode()).hexdigest()[:16]
 
 
 def load_taunts():
@@ -127,7 +131,7 @@ def main():
     for trigger, lines in taunts.items():
       print(f"\n{trigger}:")
       for line_1, line_2 in lines:
-        print(f"  [{taunt_speech_key(line_1, line_2)}] {line_1} / {line_2}")
+        print(f"  [{taunt_speech_key(line_1)}] {line_1} / {line_2}")
     if platform.system() == "Darwin":
       print("\nVoices: say -v '?'")
     return
@@ -142,7 +146,7 @@ def main():
   keys = set()
   for trigger, lines in taunts.items():
     for line_1, line_2 in lines:
-      key = taunt_speech_key(line_1, line_2)
+      key = taunt_speech_key(line_1)
       keys.add(key)
       out_path = out_dir / f"{key}.wav"
 
@@ -150,8 +154,9 @@ def main():
         skipped += 1
         continue
 
-      # Both lines are spoken as one utterance, which is how they read on screen
-      spoken = f"{line_1}. {line_2}"
+      # Only line 1 is spoken: line 2 varies at runtime, and a short clip finishes
+      # before the 4s alert clears instead of running on past it.
+      spoken = line_1
       try:
         render(spoken, out_path, args.voice)
         rendered += 1

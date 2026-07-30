@@ -183,6 +183,7 @@ struct FrogPilotOnroadEvent @0xa5cd762cd951a455 {
     sissyTailgating @35;
     sissySpeeding @36;
     sissyDistracted @37;
+    sissyPraise @38;
   }
 }
 
@@ -237,6 +238,11 @@ struct FrogPilotPlan @0xf98d843bfd7004a3 {
   laneOffsetFiltered @40 :Float32;     # m, ~3s filtered — the one worth reading
   measuredLaneWidth @41 :Float32;      # m, distance between the two ego lane lines
   laneTrimLateralAccel @42 :Float32;   # m/s^2, right-positive; 0 unless the trim is on
+
+  # How many times the Sissy Mode trigger that just fired has fired this drive. Counted in
+  # the planner but needed by the alert text, which is built in selfdrived — this is the
+  # only way across, since selfdrived can read frogpilotPlan and the planner cannot.
+  sissyOffenceCount @43 :UInt16;
 }
 
 struct FrogPilotRadarState @0xb86e6369214c01c8 {

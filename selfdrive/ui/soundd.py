@@ -51,9 +51,15 @@ TAUNT_SPEECH_PATHS = (Path("/data/media/taunt_speech"),
 TAUNT_CACHE_SIZE = 4
 
 
-def taunt_speech_key(line_1: str, line_2: str) -> str:
-  """Hash of the exact displayed text. Must match make_taunt_speech.py or nothing plays."""
-  return hashlib.sha1(f"{line_1}\n{line_2}".encode()).hexdigest()[:16]
+def taunt_speech_key(line_1: str) -> str:
+  """Hash of line 1 only. Must match make_taunt_speech.py or nothing plays.
+
+  Line 2 is deliberately excluded: it carries live values like the running offence count, so
+  hashing it would change the key on every firing and the line would silently have no audio.
+  Only line 1 is rendered, which also keeps the spoken clip short enough to finish before the
+  4s alert clears — the full two-line renders averaged 8.7s and ran on well past the text.
+  """
+  return hashlib.sha1(line_1.encode()).hexdigest()[:16]
 
 # FrogPilot variables
 FrogPilotAudibleAlert = custom.FrogPilotCarControl.HUDControl.AudibleAlert
@@ -169,14 +175,14 @@ class Soundd:
       length = wavefile.getnframes()
       self.loaded_sounds[sound] = np.frombuffer(wavefile.readframes(length), dtype=np.int16).astype(np.float32) / (2**16/2)
 
-  def load_taunt_speech(self, line_1, line_2):
+  def load_taunt_speech(self, line_1):
     """Resolve the spoken line for the taunt about to play, loading it only if needed.
 
     A missing file is normal, not a fault: the pool is meant to be edited and a line that has
     not been rendered yet simply has no audio. Never raise here — soundd dying takes every
     alert sound with it, including the safety-relevant ones.
     """
-    key = taunt_speech_key(line_1, line_2)
+    key = taunt_speech_key(line_1)
 
     if key not in self.taunt_sounds:
       path = next((p / f"{key}.wav" for p in TAUNT_SPEECH_PATHS if (p / f"{key}.wav").is_file()), None)
@@ -253,8 +259,8 @@ class Soundd:
         alert = getattr(FrogPilotAudibleAlert, name, None)
       if alert is not None:
         if alert == FrogPilotAudibleAlert.sissyTaunt:
-          self.taunt_current = self.load_taunt_speech(*next(
-            (l for lines in SISSY_TAUNTS.values() for l in lines), ("", "")))
+          first = next((l for lines in SISSY_TAUNTS.values() for l in lines), ("", ""))
+          self.taunt_current = self.load_taunt_speech(first[0])
         self.update_alert(alert)
       else:
         cloudlog.warning(f"soundd: ignoring unknown TestAlert {name!r}")
@@ -274,7 +280,7 @@ class Soundd:
       # Resolve the spoken line before switching to it. The text on this message is exactly what
       # is being displayed, so hashing it here needs no extra plumbing from the planner.
       if new_alert == FrogPilotAudibleAlert.sissyTaunt and new_alert != self.current_alert:
-        self.taunt_current = self.load_taunt_speech(fpss.alertText1, fpss.alertText2)
+        self.taunt_current = self.load_taunt_speech(fpss.alertText1)
 
       self.update_alert(new_alert)
     elif check_selfdrive_timeout_alert(sm):
