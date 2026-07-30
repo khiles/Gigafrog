@@ -16,14 +16,19 @@ better sounding and less to break. The cost is that you re-run this after editin
 
 Naming: each file is named by a hash of LINE 1 ONLY, matching taunt_speech_key in
 selfdrive/ui/soundd.py. Line 2 carries live values such as the running offence count, so hashing
-it would change the key every firing and leave the line silent. Only line 1 is spoken, which also
-keeps the clip short enough to finish before the 4s alert clears. A line with no file is silent.
+it would change the key every firing and leave the line silent. Both lines ARE spoken — the hash
+is only the filename and does not have to match the audio. A line with no file is silent.
+
+Because the key ignores line 2, editing line 2 alone leaves the filename unchanged. manifest.json
+records what each file actually says, so that case is caught and re-rendered instead of quietly
+keeping the old audio.
 
 Output format is forced to mono 16-bit 48kHz because soundd asserts exactly that and will refuse
 anything else.
 """
 import argparse
 import hashlib
+import json
 import os
 import platform
 import shutil
@@ -142,7 +147,16 @@ def main():
   print(f"Rendering with {engine}"
         f"{f' (voice: {args.voice})' if args.voice else ''} into {out_dir}/\n")
 
-  rendered = skipped = failed = 0
+  # Because the key covers line 1 only, editing line 2 leaves the filename unchanged and the old
+  # audio would be silently reused. The manifest records what each file actually says so that is
+  # detected and re-rendered rather than quietly wrong.
+  manifest_path = out_dir / "manifest.json"
+  try:
+    manifest = json.loads(manifest_path.read_text())
+  except (FileNotFoundError, ValueError):
+    manifest = {}
+
+  rendered = skipped = failed = stale_text = 0
   keys = set()
   for trigger, lines in taunts.items():
     for line_1, line_2 in lines:
@@ -150,15 +164,17 @@ def main():
       keys.add(key)
       out_path = out_dir / f"{key}.wav"
 
-      if out_path.exists() and not args.force:
-        skipped += 1
-        continue
+      spoken = f"{line_1}. {line_2}"
 
-      # Only line 1 is spoken: line 2 varies at runtime, and a short clip finishes
-      # before the 4s alert clears instead of running on past it.
-      spoken = line_1
+      if out_path.exists() and not args.force:
+        if manifest.get(key) == spoken:
+          skipped += 1
+          continue
+        stale_text += 1   # same line 1, different line 2 — the audio no longer matches
+
       try:
         render(spoken, out_path, args.voice)
+        manifest[key] = spoken
         rendered += 1
         print(f"  {key}  {line_1[:48]}")
       except subprocess.CalledProcessError as exc:
@@ -167,7 +183,11 @@ def main():
 
   # Lines that were edited leave their old audio behind; say so rather than silently hoarding
   stale = [p for p in out_dir.glob("*.wav") if p.stem not in keys]
+  manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True))
+
   print(f"\n{rendered} rendered, {skipped} already present, {failed} failed")
+  if stale_text:
+    print(f"  ({stale_text} of those re-rendered because line 2 changed under an unchanged line 1)")
   if stale:
     print(f"{len(stale)} stale file(s) from edited or removed lines:")
     for p in stale:
