@@ -46,6 +46,9 @@ FrogPilotLateralPanel::FrogPilotLateralPanel(FrogPilotSettingsWindow *parent, bo
     {"AlwaysOnLateralLKAS", tr("Enable With LKAS"), tr("<b>Enable \"Always On Lateral\" whenever \"LKAS\" is on, even when openpilot is not engaged.</b>"), ""},
     {"PauseAOLOnBrake", tr("Pause on Brake Press Below"), tr("<b>Pause \"Always On Lateral\" below the set speed while the brake pedal is pressed.</b>"), ""},
 
+    {"LaneCenteringTrim", tr("Lane Centering Trim"), tr("<b>Nudge the car back toward the middle of its lane if it consistently sits to one side.</b><br><br>This corrects a standing bias — it is not lane keeping, and its authority is deliberately small. Check the \"Lane Position: Offset From Centre\" developer metric first: if it already reads near zero, there is nothing here to fix. A device mounted off the centre of the windscreen is a common cause and is better fixed by remounting."), "../../frogpilot/assets/toggle_icons/icon_lane.png"},
+    {"LaneCenteringTrimGain", tr("Trim Strength"), tr("<b>How hard the trim pulls back toward centre.</b><br><br>Start at 1.0. If the car still sits off centre, raise it; if it wanders or feels like it is fighting you, lower it."), ""},
+
     {"LaneChanges", tr("Lane Changes"), tr("<b>Allow openpilot to change lanes.</b>"), "../../frogpilot/assets/toggle_icons/icon_lane.png"},
     {"NudgelessLaneChange", tr("Automatic Lane Changes"), tr("<b>When the turn signal is on, openpilot will automatically change lanes.</b> No steering-wheel nudge required!"), ""},
     {"LaneChangeTime", tr("Lane Change Delay"), tr("<b>Delay between turn signal activation and the start of an automatic lane change.</b>"), ""},
@@ -116,6 +119,9 @@ FrogPilotLateralPanel::FrogPilotLateralPanel(FrogPilotSettingsWindow *parent, bo
         laneChangeTimeLabels[i] = i == 0 ? tr("Instant") : std::lround(i / 0.1) == 1 / 0.1 ? QString::number(i, 'f', 1) + tr(" second") : QString::number(i, 'f', 1) + tr(" seconds");
       }
       lateralToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0, 5, QString(), laneChangeTimeLabels, 0.1);
+    } else if (param == "LaneCenteringTrimGain") {
+      lateralToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0.1, 3, QString(), std::map<float, QString>(), 0.1);
+
     } else if (param == "LaneDetectionWidth") {
       lateralToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0, 15, QString(), std::map<float, QString>(), 0.1, true);
     } else if (param == "MinimumLaneChangeSpeed") {
@@ -149,6 +155,8 @@ FrogPilotLateralPanel::FrogPilotLateralPanel(FrogPilotSettingsWindow *parent, bo
       advancedLateralTuneList->addItem(lateralToggle);
     } else if (aolKeys.contains(param)) {
       aolList->addItem(lateralToggle);
+    } else if (laneCenteringKeys.contains(param)) {
+      lateralToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0.1, 3, QString(), std::map<float, QString>(), 0.1);
     } else if (laneChangeKeys.contains(param)) {
       laneChangeList->addItem(lateralToggle);
     } else if (lateralTuneKeys.contains(param)) {

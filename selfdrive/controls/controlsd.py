@@ -194,6 +194,18 @@ class Controls:
       jerk_scale = 0.5 + 0.5 * alpha  # ramps 0.5 → 1.0 over blend window
     else:
       new_desired_curvature = model_v2.action.desiredCurvature
+
+    # Lane centering trim. Corrects a standing lateral bias (the car sat left of centre on a UK
+    # RHD car); the planner computes it and caps it, and it is zero unless the toggle is on.
+    #
+    # Only applied in steady state: during either blend window the target is deliberately being
+    # ramped from the physical curvature, and adding a bias there would fight the ramp. The
+    # planner's own gates (lane-line confidence, lane width, speed, not lane changing) mean this
+    # is already zero whenever the measurement is untrustworthy.
+    if CC.latActive and self._resume_blend_t >= OVERRIDE_RESUME_BLEND_S and self._post_press_blend_t >= POST_PRESS_BLEND_S:
+      trim_accel = self.sm['frogpilotPlan'].laneTrimLateralAccel
+      new_desired_curvature += trim_accel / max(CS.vEgo, 4.0)**2
+
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll, jerk_scale)
     lat_delay = self.sm["liveDelay"].lateralDelay + LAT_SMOOTH_SECONDS
 

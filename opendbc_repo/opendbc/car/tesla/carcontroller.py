@@ -9,9 +9,11 @@ from opendbc.car.tesla.values import CarControllerParams, CANBUS, LEGACY_CARS, C
 from opendbc.car.vehicle_model import VehicleModel
 
 
-# DAS_bodyControls send period, in 10ms control frames. 5 is 20Hz; set back to 10 for the
-# stock 10Hz if the faster rate makes the indicator worse rather than better.
-BLINKER_SEND_PERIOD = 5
+# DAS_bodyControls send period, in 10ms control frames. 10 is the stock 10Hz.
+# Briefly ran at 20Hz to try to out-rate a suspected competing sender; it did not help, so it
+# is back to stock — sending faster than the BCM expects is its own risk and there is no
+# evidence it bought anything.
+BLINKER_SEND_PERIOD = 10
 BLINKER_HOLD_SENDS = int(0.5 / (0.01 * BLINKER_SEND_PERIOD))   # hold the last direction 0.5s
 BLINKER_CANCEL_SENDS = int(1.0 / (0.01 * BLINKER_SEND_PERIOD))  # then 1s of NONE to cancel
 
@@ -106,15 +108,15 @@ class CarController(CarControllerBase):
     # requesting an indicator, plus a short NONE tail so the BCM reliably cancels;
     # outside of that the stock AP owns DAS_bodyControls (auto wipers/high beam).
     #
-    # Sent at 20Hz rather than 10Hz, and the direction is latched for BLINKER_HOLD_SENDS
-    # after the request drops. On the car the indicator flashed in bursts of two with a
-    # pause between them instead of holding, which is what a request that keeps getting
-    # re-triggered looks like: any frame where we stop asserting a direction — either a
-    # competing DAS_bodyControls from the stock AP landing between ours, or CC.leftBlinker
-    # briefly dropping as the lane change state machine passes through laneChangeFinishing
-    # (desire_helper clears lane_change_direction before picking the next state) — lets the
-    # BCM restart its flash sequence. Holding closes the gap on our side; it does not fix
-    # the stock AP case, which needs a CAN capture on the chassis bus to confirm.
+    # The direction is latched for BLINKER_HOLD_SENDS after the request drops, so a brief gap
+    # in CC.leftBlinker (the lane change state machine clears lane_change_direction as it
+    # passes through laneChangeFinishing) cannot let the BCM restart its flash sequence.
+    #
+    # That did NOT fix the observed bursts of two flashes, so the cause is on the car side, not
+    # ours. The leading hypothesis is now a counter conflict: the stock AP also transmits this
+    # address, we cannot read its DAS_bodyControlsCounter (tesla_raven_party.dbc does not
+    # declare one), and two senders with independent counters make the BCM reject frames
+    # intermittently. Confirming that needs a chassis-bus capture; do not guess at it again.
     if self.frame % BLINKER_SEND_PERIOD == 0:
       blinker_cmd = CC.leftBlinker or CC.rightBlinker
       if blinker_cmd:
@@ -132,7 +134,8 @@ class CarController(CarControllerBase):
           self.body_controls_cancel_sends -= 1
           turn_indicator, turn_reason = 0, 0   # NONE
         cntr = (self.frame // BLINKER_SEND_PERIOD) % 16
-        can_sends.append(self.tesla_can.create_body_controls(cntr, turn_indicator, turn_reason))
+        can_sends.append(self.tesla_can.create_body_controls(cntr, turn_indicator, turn_reason,
+                                                             CS.stock_body_controls))
 
     # TODO: HUD control
     new_actuators = actuators.as_builder()

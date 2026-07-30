@@ -7,8 +7,8 @@ the fifteen plan channels), and controlsd only blends and rate-limits it. So the
 within the lane is unmeasured and unreported, which makes "it doesn't sit centred" impossible to
 diagnose.
 
-This measures it and nothing else. There is deliberately no control output here — see the note
-on the model being a closed loop, below.
+The measurement is always on. The trim that acts on it is off by default and separately gated —
+see below.
 
 Sign convention: the model's lateral frame is right-positive. laneLines[1] is the ego lane's
 left line and laneLines[2] the right, so a centred car reads left ~= -half_width and
@@ -18,21 +18,30 @@ is left of where it should be.
 
 That sign is derived, not measured. Confirm it against a drive before anything acts on it.
 
-Why no controller lives here yet
---------------------------------
-The model is a closed loop that cannot be opened: it servos the car to *its* idea of centre. A
-bias added downstream is actively opposed — the model sees the resulting offset and corrects
-back. Two consequences that would otherwise be found the hard way:
+The trim
+--------
+Real-world testing confirmed a consistent left bias on a UK right-hand-drive car, which is what
+the trim corrects. It is proportional only, and that is not a simplification:
 
-  * An integrator winds up fighting the model until it saturates. Any trim must be proportional
-    only.
-  * Steady-state authority is a fraction of the demand, set by the ratio of our gain to the
-    model's, so a capped demand shifts the car less than the arithmetic suggests.
+The model is a closed loop that cannot be opened — it servos the car to *its* idea of centre, so
+a bias added downstream is actively opposed. An integrator would wind up fighting it until it
+saturated. Proportional accepts a partial correction and stays stable, which also means the
+steady-state shift is a fraction of the demand, set by the ratio of our gain to the model's.
 
 The retired obstacle nudge also established that the demand has to be an absolute setpoint in the
 lane-centre frame; a relative demand mixed with a frame that moves with the car produced a limit
-cycle.
+cycle. `lane_offset` is measured from lane centre, so it already is one.
+
+A likely root cause of the bias, worth ruling out before tuning the gain up: openpilot assumes
+the camera sits on the vehicle centreline, and liveCalibration learns pitch and yaw but not
+lateral translation. A device mounted left of centre makes the model believe the car is further
+right than it is, and it steers left to compensate. If that is the case, remounting fixes it
+properly and the trim is only papering over it.
 """
+import math
+
+import numpy as np
+
 from openpilot.common.filter_simple import FirstOrderFilter
 from openpilot.common.realtime import DT_MDL
 
@@ -44,6 +53,12 @@ MIN_SPEED = 5.0            # m/s
 MIN_LANE_WIDTH = 2.5       # m, narrower than this and we are not looking at a lane
 MAX_LANE_WIDTH = 4.5       # m
 
+# Trim. Small on purpose: this corrects a standing bias, it is not a lane-keeping controller,
+# and it is working against a model that pushes back.
+TRIM_DEADBAND = 0.05       # m, below this there is nothing worth correcting
+TRIM_GAIN = 0.6            # (m/s^2) per m of offset, before the user's own gain
+TRIM_MAX_ACCEL = 0.3       # m/s^2, hard cap on the demand
+
 
 class FrogPilotLaneCentering:
   def __init__(self):
@@ -51,8 +66,25 @@ class FrogPilotLaneCentering:
     self.lane_offset_filtered = 0.0   # slow, m — the one worth reading
     self.lane_offset_valid = False
     self.lane_width = 0.0
+    self.trim_lateral_accel = 0.0     # m/s^2, right-positive; 0 unless the trim is enabled
 
     self.offset_filter = FirstOrderFilter(0.0, OFFSET_TAU, DT_MDL)
+
+  def update_trim(self, enabled, gain):
+    """Proportional correction toward lane centre. Deliberately has no integrator — see above."""
+    if not (enabled and self.lane_offset_valid):
+      self.trim_lateral_accel = 0.0
+      return
+
+    error = self.lane_offset_filtered
+    if abs(error) < TRIM_DEADBAND:
+      self.trim_lateral_accel = 0.0
+      return
+
+    # Positive offset means the lane centre is to the right, so the correction is to the right,
+    # which is also positive in this frame — no sign flip.
+    demand = (error - math.copysign(TRIM_DEADBAND, error)) * TRIM_GAIN * gain
+    self.trim_lateral_accel = float(np.clip(demand, -TRIM_MAX_ACCEL, TRIM_MAX_ACCEL))
 
   def update(self, model_v2, v_ego, lane_change_active):
     lane_lines = model_v2.laneLines
@@ -87,4 +119,5 @@ class FrogPilotLaneCentering:
     self.lane_offset_filtered = 0.0
     self.lane_offset_valid = False
     self.lane_width = 0.0
+    self.trim_lateral_accel = 0.0
     self.offset_filter.x = 0.0

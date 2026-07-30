@@ -216,13 +216,14 @@ struct FrogPilotPlan @0xf98d843bfd7004a3 {
   roadRoughness @37 :Float32;          # m/s^2 RMS of vertical acceleration
 
   # Where the car actually sits between the ego lane's lines, from frogpilot_lane_centering.py.
-  # Measurement only — nothing consumes these. Positive means the lane centre is to the RIGHT of
-  # the car, i.e. the car is sitting left of centre. That sign is derived from the model's
-  # right-positive frame and has not been confirmed on a car.
+  # Positive means the lane centre is to the RIGHT of the car, i.e. the car is sitting left of
+  # centre. The measurement is always published; laneTrimLateralAccel is 0 unless the trim
+  # toggle is on, and is the only one of these that controlsd acts on.
   laneOffsetValid @38 :Bool;           # false = lines not confident, too slow, or lane changing
   laneOffset @39 :Float32;             # m, instantaneous
   laneOffsetFiltered @40 :Float32;     # m, ~3s filtered — the one worth reading
   measuredLaneWidth @41 :Float32;      # m, distance between the two ego lane lines
+  laneTrimLateralAccel @42 :Float32;   # m/s^2, right-positive; 0 unless the trim is on
 }
 
 struct FrogPilotRadarState @0xb86e6369214c01c8 {

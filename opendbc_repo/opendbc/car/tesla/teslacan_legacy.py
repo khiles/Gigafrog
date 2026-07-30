@@ -50,7 +50,7 @@ class TeslaCANRaven:
     values["DAS_controlChecksum"] = self.checksum(0x2b9, data[:7])
     return self.packers[CANBUS.powertrain].make_can_msg("DAS_control", CANBUS.powertrain, values)
 
-  def create_body_controls(self, counter, turn_indicator, turn_reason):
+  def create_body_controls(self, counter, turn_indicator, turn_reason, stock=None):
     # HW3 (Model S/X HW3) carries the BCM on the chassis bus (bus 5, tesla_can.dbc),
     # which has DAS_bodyControlsCounter and DAS_bodyControlsChecksum. Send directly there
     # so the BCM receives the indicator override without relying on AP forwarding.
@@ -60,13 +60,38 @@ class TeslaCANRaven:
     else:
       bus = CANBUS.party
     packer = self.packers[bus]
+
+    # This message owns the headlights, high beams, wipers and hazards as well as the turn
+    # indicator, and while we are commanding the indicator the panda blocks the stock
+    # Autopilot's copy — so the BCM acts on OUR values for all of them, not just the indicator.
+    # Mirror whatever the stock AP last asked for and override only the indicator, so its auto
+    # headlights and auto wipers keep working through a lane change.
+    #
+    # Getting this wrong is not benign. DAS_highLowBeamOffReason was previously left out of the
+    # dict entirely, so it packed as 0 — which the DBC defines as HIGH_BEAM_ON. That flashed the
+    # high beams on every lane change.
+    if stock is not None:
+      headlight = int(stock["DAS_headlightRequest"])
+      hazard = int(stock["DAS_hazardLightRequest"])
+      wiper = int(stock["DAS_wiperSpeed"])
+      beam_decision = int(stock["DAS_highLowBeamDecision"])
+      beam_off_reason = int(stock["DAS_highLowBeamOffReason"])
+    else:
+      # No stock frame seen — request nothing at all rather than guessing a state.
+      headlight = 3        # INVALID = no DAS headlight request
+      hazard = 3           # SNA = no DAS hazard request
+      wiper = 15           # INVALID = no DAS wiper request
+      beam_decision = 3    # SNA = no DAS beam request
+      beam_off_reason = 5  # SNA. NOT 0 — 0 is HIGH_BEAM_ON
+
     values = {
-      "DAS_headlightRequest": 3,         # INVALID = no DAS headlight request
-      "DAS_hazardLightRequest": 3,       # SNA = no DAS hazard request
-      "DAS_wiperSpeed": 15,              # INVALID = no DAS wiper request
+      "DAS_headlightRequest": headlight,
+      "DAS_hazardLightRequest": hazard,
+      "DAS_wiperSpeed": wiper,
       "DAS_turnIndicatorRequest": turn_indicator,
       "DAS_turnIndicatorRequestReason": turn_reason,
-      "DAS_highLowBeamDecision": 3,      # SNA = no DAS beam request
+      "DAS_highLowBeamDecision": beam_decision,
+      "DAS_highLowBeamOffReason": beam_off_reason,
       "DAS_bodyControlsCounter": counter,
     }
     data = packer.make_can_msg("DAS_bodyControls", bus, values)[1]

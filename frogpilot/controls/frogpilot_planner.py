@@ -109,9 +109,12 @@ class FrogPilotPlanner:
 
     self.frogpilot_pose.update(sm["livePose"], v_ego)
 
-    # Measurement only — nothing consumes the offset. See frogpilot_lane_centering.py.
+    # The measurement is always on; the trim it feeds is off by default. controlsd consumes
+    # laneTrimLateralAccel. See frogpilot_lane_centering.py.
     lane_change_active = sm["modelV2"].meta.laneChangeState != log.LaneChangeState.off
     self.frogpilot_lane_centering.update(sm["modelV2"], v_ego, lane_change_active)
+    self.frogpilot_lane_centering.update_trim(frogpilot_toggles.lane_centering_trim,
+                                              frogpilot_toggles.lane_centering_trim_gain)
 
     self.lateral_check = v_ego >= frogpilot_toggles.pause_lateral_below_speed
     self.lateral_check |= not (sm["carState"].leftBlinker or sm["carState"].rightBlinker) and frogpilot_toggles.pause_lateral_below_signal
@@ -189,6 +192,7 @@ class FrogPilotPlanner:
     frogpilotPlan.laneOffsetFiltered = float(self.frogpilot_lane_centering.lane_offset_filtered)
     frogpilotPlan.laneOffsetValid = self.frogpilot_lane_centering.lane_offset_valid
     frogpilotPlan.measuredLaneWidth = float(self.frogpilot_lane_centering.lane_width)
+    frogpilotPlan.laneTrimLateralAccel = float(self.frogpilot_lane_centering.trim_lateral_accel)
 
     frogpilotPlan.corneringAcceleration = float(self.frogpilot_pose.cornering_acceleration)
     frogpilotPlan.roadGradient = float(self.frogpilot_pose.road_gradient)

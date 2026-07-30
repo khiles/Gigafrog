@@ -615,6 +615,9 @@ class FrogPilotVariables:
       toggle.sound_pack = toggle.current_holiday_theme
       toggle.wheel_image = toggle.current_holiday_theme
 
+    toggle.lane_centering_trim = self.get_value("LaneCenteringTrim")
+    toggle.lane_centering_trim_gain = self.get_value("LaneCenteringTrimGain", cast=float,
+                                                     condition=toggle.lane_centering_trim)
     toggle.lane_changes = self.get_value("LaneChanges")
     toggle.lane_change_delay = self.get_value("LaneChangeTime", cast=float, condition=toggle.lane_changes)
     toggle.lane_detection_width = self.get_value("LaneDetectionWidth", cast=float, condition=toggle.lane_changes, conversion=distance_conversion)

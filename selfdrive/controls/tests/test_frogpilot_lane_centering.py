@@ -128,10 +128,66 @@ def test_there_is_no_integrator():
   assert lc.lane_offset_filtered <= 0.45  # bounded by the input, not accumulating
 
 
-def test_module_publishes_no_control_output():
-  """Stage A is measurement only. If a demand/gain/curvature attribute appears here, the staging
-  discipline has been broken and this test should be updated deliberately, not incidentally."""
-  lc = run(LC.FrogPilotLaneCentering(), 5.0)
-  banned = [a for a in dir(lc)
-            if any(w in a.lower() for w in ("curvature", "demand", "gain", "accel"))]
-  assert banned == []
+# ---- trim ----
+# Real-world testing showed a standing left bias on a UK RHD car, so the trim now exists. It is
+# proportional only: the model actively opposes any downstream bias, so an integrator would wind
+# up until it saturated. test_no_integrator is the guard on that.
+
+def trimmed(gain=1.0, enabled=True, **model_kwargs):
+  lc = run(LC.FrogPilotLaneCentering(), 30.0, make_model(**model_kwargs))
+  lc.update_trim(enabled, gain)
+  return lc
+
+
+def test_trim_is_zero_when_disabled():
+  assert trimmed(enabled=False, left_y=-1.4, right_y=2.2).trim_lateral_accel == 0.0
+
+
+def test_trim_steers_toward_centre():
+  # Car left of centre -> positive demand -> steer right, and vice versa
+  assert trimmed(left_y=-1.4, right_y=2.2).trim_lateral_accel > 0
+  assert trimmed(left_y=-2.2, right_y=1.4).trim_lateral_accel < 0
+
+
+def test_trim_respects_the_deadband():
+  assert trimmed(left_y=-1.82, right_y=1.78).trim_lateral_accel == 0.0
+
+
+def test_trim_is_capped():
+  lc = trimmed(gain=5.0, left_y=-1.0, right_y=2.6)
+  assert abs(lc.trim_lateral_accel) <= LC.TRIM_MAX_ACCEL
+
+
+def test_trim_is_continuous_across_the_deadband():
+  """A step at the deadband edge would be felt as a twitch."""
+  lc = LC.FrogPilotLaneCentering()
+  prev = None
+  for off in (LC.TRIM_DEADBAND - 0.001, LC.TRIM_DEADBAND + 0.001, LC.TRIM_DEADBAND + 0.01):
+    lc.reset()
+    lc.lane_offset_filtered, lc.lane_offset_valid = off, True
+    lc.update_trim(True, 1.0)
+    if prev is not None:
+      assert lc.trim_lateral_accel - prev < 0.02
+    prev = lc.trim_lateral_accel
+
+
+def test_trim_has_no_integrator():
+  """A constant offset must give a constant demand. The model pushes back against any bias, so
+  an integrator would wind up until it hit the cap."""
+  lc = trimmed(left_y=-1.4, right_y=2.2)
+  first = lc.trim_lateral_accel
+  for _ in range(int(300.0 / DT_MDL)):
+    lc.update(make_model(left_y=-1.4, right_y=2.2), 20.0, False)
+    lc.update_trim(True, 1.0)
+  # 1e-3 leaves room for the offset filter finishing its convergence; an integrator would
+  # have run all the way to TRIM_MAX_ACCEL, which is orders of magnitude larger.
+  assert lc.trim_lateral_accel == pytest.approx(first, abs=1e-3)
+  assert lc.trim_lateral_accel < LC.TRIM_MAX_ACCEL
+
+
+def test_trim_zeroes_when_the_lane_is_lost():
+  lc = trimmed(left_y=-1.4, right_y=2.2)
+  assert lc.trim_lateral_accel > 0
+  lc.update(make_model(left_prob=0.1), 20.0, False)
+  lc.update_trim(True, 1.0)
+  assert lc.trim_lateral_accel == 0.0

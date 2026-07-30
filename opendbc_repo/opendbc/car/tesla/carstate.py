@@ -80,6 +80,8 @@ class CarState(CarStateBase):
     self.distance_button = 0
     self.dtr_dist_prev = -1
 
+    self.stock_body_controls = None
+
     # Latest value seen per UI_driverAssistRoadSign mode. The modes rotate, so a mode absent
     # from this cycle must keep its previous value rather than reset to zero.
     self.road_sign: dict[str, float] = {}
@@ -332,6 +334,15 @@ class CarState(CarStateBase):
 
     # Messages needed by carcontroller
     self.das_control = copy.copy(cp_ap_pt.vl["DAS_control"])
+
+    # The stock AP's own DAS_bodyControls, so the indicator override can carry its headlight,
+    # wiper and beam requests through unchanged instead of inventing values for them — while we
+    # transmit, the panda blocks the AP's copy and the BCM sees only ours. None means we have not
+    # seen a stock frame, which create_body_controls treats as "request nothing".
+    if _msg_alive(cp_ap_party, "DAS_bodyControls", "DAS_headlightRequest"):
+      self.stock_body_controls = copy.copy(cp_ap_party.vl["DAS_bodyControls"])
+    else:
+      self.stock_body_controls = None
 
     # FrogPilot variables
     fp_ret = custom.FrogPilotCarState.new_message()
