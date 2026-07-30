@@ -170,6 +170,15 @@ struct FrogPilotOnroadEvent @0xa5cd762cd951a455 {
     mapHazard @29;
     speedLimitExceeded @30;
     tailgating @31;
+
+    # Sissy Mode taunts. Also outside the random event range, and deliberately so — they carry
+    # their own cooldowns rather than the one-per-drive random event machinery.
+    sissyLaneHugging @32;
+    sissyHardBraking @33;
+    sissyCornering @34;
+    sissyTailgating @35;
+    sissySpeeding @36;
+    sissyDistracted @37;
   }
 }
 

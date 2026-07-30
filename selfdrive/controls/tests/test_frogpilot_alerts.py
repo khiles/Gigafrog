@@ -209,12 +209,38 @@ def test_tailgating_scales_with_the_drivers_own_gap():
   assert E.FrogPilotEventName.tailgating in long.events.added
 
 
-@pytest.mark.parametrize("event", ["speedLimitExceeded", "tailgating"])
+SISSY_EVENT_NAMES = ["sissyLaneHugging", "sissyHardBraking", "sissyCornering",
+                     "sissyTailgating", "sissySpeeding", "sissyDistracted"]
+
+
+@pytest.mark.parametrize("event", ["speedLimitExceeded", "tailgating"] + SISSY_EVENT_NAMES)
 def test_events_are_outside_the_random_event_range(event):
   # frogpilot_events tests RANDOM_EVENT_START <= event <= RANDOM_EVENT_END, so a new
   # non-random event inside 17..28 would be treated as a random event
   value = getattr(E.FrogPilotEventName, event)
   assert not (E.RANDOM_EVENT_START <= value <= E.RANDOM_EVENT_END)
+
+
+@pytest.mark.parametrize("event", SISSY_EVENT_NAMES)
+def test_sissy_taunts_can_never_affect_driving(event):
+  """The one that matters. selfdrived/state.py reacts to USER_DISABLE, IMMEDIATE_DISABLE,
+  SOFT_DISABLE, OVERRIDE_* and NO_ENTRY; PERMANENT appears nowhere in it. A joke must never be
+  able to disengage the car or block engagement, so every taunt must be PERMANENT and nothing
+  else."""
+  from openpilot.selfdrive.selfdrived.events import ET, FROGPILOT_EVENTS
+  entry = FROGPILOT_EVENTS[getattr(E.FrogPilotEventName, event)]
+  assert set(entry.keys()) == {ET.PERMANENT}, f"{event} has non-cosmetic event types: {set(entry)}"
+
+
+@pytest.mark.parametrize("trigger", ["lane_hugging", "hard_braking", "cornering",
+                                     "tailgating", "speeding", "distracted"])
+def test_every_taunt_trigger_has_lines(trigger):
+  from openpilot.selfdrive.selfdrived.events import SISSY_TAUNTS
+  lines = SISSY_TAUNTS[trigger]
+  assert len(lines) >= 2, "need at least two so the no-immediate-repeat pick has a choice"
+  for line_1, line_2 in lines:
+    assert line_1 and len(line_1) <= 40, f"{line_1!r} is too long to read at a glance"
+    assert len(line_2) <= 60, f"{line_2!r} is too long to read at a glance"
 
 
 def test_alerts_only_read_subscribed_services():

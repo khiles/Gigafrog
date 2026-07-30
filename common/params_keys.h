@@ -352,6 +352,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"RadarTracksUI", {PERSISTENT, BOOL, "0", "0", 3}},
     {"RainbowPath", {PERSISTENT, BOOL, "0", "0", 1}},
     {"RandomEvents", {PERSISTENT, BOOL, "0", "0", 1}},
+    {"SissyMode", {PERSISTENT, BOOL, "0", "0", 1}},
     {"RandomThemes", {PERSISTENT, BOOL, "0", "0", 1}},
     {"RandomThemesHolidays", {PERSISTENT, BOOL, "0", "0", 1}},
     {"ReduceAccelerationLowVisibility", {PERSISTENT, INT, "0", "0", 2}},

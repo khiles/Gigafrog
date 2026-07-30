@@ -2,6 +2,7 @@
 import bisect
 import math
 import os
+import random
 from enum import IntEnum
 from collections.abc import Callable
 from types import SimpleNamespace
@@ -420,6 +421,75 @@ def forcing_stop_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMas
     "Press the gas pedal or 'Resume' button to override",
     FrogPilotAlertStatus.frogpilot, AlertSize.mid,
     Priority.MID, VisualAlert.none, AudibleAlert.prompt, 1.)
+
+
+# ---------------------------------------------------------------------------------------------
+# Sissy Mode taunt lines. EDIT THESE FREELY — it is only data, no logic reads the wording.
+#
+# Each entry is (line_1, line_2): line 1 is the large text, line 2 the smaller one under it. Keep
+# them short. This is on screen while the car is moving, so long lines are both a distraction and
+# a worse joke. One is picked at random each time a taunt fires, never the same one twice running.
+#
+# The trigger thresholds and cooldowns are separate, in frogpilot/controls/lib/frogpilot_events.py.
+# ---------------------------------------------------------------------------------------------
+SISSY_TAUNTS = {
+  "lane_hugging": [
+    ("FUCKING HELL", "pick a lane and commit to it"),
+    ("ARE YOU DRUNK", "you're wearing the kerb"),
+    ("THE LINES AREN'T SUGGESTIONS", "you absolute liability"),
+    ("oh, sweetheart.", "the middle. aim for the middle."),
+  ],
+  "hard_braking": [
+    ("JESUS CHRIST", "did you not see it coming? at all?"),
+    ("EVERYONE FELT THAT", "including the car behind"),
+    ("BRAKING IS A SKILL", "you do not have it"),
+    ("WHAT THE FUCK WAS THAT", "no, genuinely. what."),
+  ],
+  "cornering": [
+    ("THAT WAS DISGUSTING", "the tyres deserve better than you"),
+    ("PASSENGER RATING: 0/10", "one of them is crying"),
+    ("IT'S A ROUNDABOUT", "not a racetrack. you're not fast."),
+    ("bless.", "you genuinely thought that was fine."),
+  ],
+  "tailgating": [
+    ("GET OFF THEIR ARSE", "it's pathetic and everyone can see it"),
+    ("NOT A RACING DRIVER", "you're a hazard with a licence"),
+    ("BACK OFF", "you absolute embarrassment"),
+  ],
+  "speeding": [
+    ("SLOW DOWN, CLOWN", "the limit isn't a personal challenge"),
+    ("IN A RUSH?", "same red light. every single time."),
+    ("LOSER", "the car is embarrassed to be seen with you"),
+  ],
+  "distracted": [
+    ("EYES ON THE ROAD", "you unbelievable idiot"),
+    ("PUT IT DOWN", "the bollard won't move for you"),
+    ("aww, did we try?", "we did. it didn't work."),
+  ],
+}
+
+_sissy_last_line: dict[str, int] = {}
+
+
+def sissy_taunt_alert(trigger: str, audible: int) -> Callable[..., Alert]:
+  """Build the alert callback for one taunt trigger.
+
+  Called once per firing, not once per frame: frogpilot_events raises the event on a single frame
+  and its cooldown stops it re-raising, so the random pick stays stable for the alert's lifetime
+  rather than flickering. ET.PERMANENT and VisualAlert.none keep this purely cosmetic — nothing
+  in selfdrived/state.py reacts to either, so no wording here can ever affect how the car drives.
+  """
+  def alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool,
+            soft_disable_time: int, personality, frogpilot_toggles: SimpleNamespace) -> Alert:
+    lines = SISSY_TAUNTS.get(trigger) or [("", "")]
+    choices = [i for i in range(len(lines)) if i != _sissy_last_line.get(trigger)] or [0]
+    index = random.choice(choices)
+    _sissy_last_line[trigger] = index
+    line_1, line_2 = lines[index]
+    return Alert(line_1, line_2,
+                 FrogPilotAlertStatus.frogpilot, AlertSize.mid,
+                 Priority.LOW, VisualAlert.none, audible, 4.)
+  return alert
 
 
 def holiday_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMaster, metric: bool, soft_disable_time: int, personality, frogpilot_toggles: SimpleNamespace) -> Alert:
@@ -1202,6 +1272,33 @@ FROGPILOT_EVENTS: dict[int, dict[str, Alert | AlertCallbackType]] = {
       "",
       FrogPilotAlertStatus.frogpilot, AlertSize.small,
       Priority.LOW, VisualAlert.none, AudibleAlert.prompt, 3.),
+  },
+
+  # Sissy Mode. ET.PERMANENT only, and that is load-bearing: selfdrived/state.py reacts to
+  # USER_DISABLE, IMMEDIATE_DISABLE, SOFT_DISABLE, OVERRIDE_* and NO_ENTRY, and to none of these.
+  # A joke must never be able to disengage the car.
+  FrogPilotEventName.sissyLaneHugging: {
+    ET.PERMANENT: sissy_taunt_alert("lane_hugging", FrogPilotAudibleAlert.uwu),
+  },
+
+  FrogPilotEventName.sissyHardBraking: {
+    ET.PERMANENT: sissy_taunt_alert("hard_braking", FrogPilotAudibleAlert.angry),
+  },
+
+  FrogPilotEventName.sissyCornering: {
+    ET.PERMANENT: sissy_taunt_alert("cornering", FrogPilotAudibleAlert.noice),
+  },
+
+  FrogPilotEventName.sissyTailgating: {
+    ET.PERMANENT: sissy_taunt_alert("tailgating", FrogPilotAudibleAlert.angry),
+  },
+
+  FrogPilotEventName.sissySpeeding: {
+    ET.PERMANENT: sissy_taunt_alert("speeding", FrogPilotAudibleAlert.doc),
+  },
+
+  FrogPilotEventName.sissyDistracted: {
+    ET.PERMANENT: sissy_taunt_alert("distracted", FrogPilotAudibleAlert.uwu),
   },
 
   FrogPilotEventName.speedLimitChanged: {

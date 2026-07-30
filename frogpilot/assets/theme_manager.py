@@ -16,8 +16,11 @@ from openpilot.frogpilot.common.frogpilot_variables import ACTIVE_THEME_PATH, RA
 CANCEL_DOWNLOAD_PARAM = "CancelThemeDownload"
 DOWNLOAD_PROGRESS_PARAM = "ThemeDownloadProgress"
 
+CUSTOM_THEME_PATH = Path(__file__).parent / "custom_themes"
 HOLIDAY_THEME_PATH = Path(__file__).parent / "holiday_themes"
 STOCKOP_THEME_PATH = Path(__file__).parent / "stock_theme"
+
+SISSY_MODE_THEME = "sissy_mode"
 
 HOLIDAY_SLUGS = {
   "new_years": "New Year's",
@@ -97,6 +100,39 @@ class ThemeManager:
     steering_wheel_save_path = THEME_SAVE_PATH / "steering_wheels/frog.png"
     steering_wheel_save_path.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(steering_wheel_image_path, steering_wheel_save_path)
+
+    ThemeManager.copy_sissy_mode_theme()
+
+  @staticmethod
+  def copy_sissy_mode_theme():
+    """Install the bundled Sissy Mode theme the same way the default frog theme is installed.
+
+    Only the palette is new; the art is Valentine's, which is already pink and already ships every
+    category. Once the files land under THEME_SAVE_PATH the theme shows up in the Themes pickers on
+    its own, because getThemeList in theme_settings.cc scans that directory — no C++ needed.
+    """
+    valentines_theme_path = HOLIDAY_THEME_PATH / "valentines_day"
+
+    sources = [
+      (CUSTOM_THEME_PATH / SISSY_MODE_THEME / "colors", "colors"),
+      (valentines_theme_path / "distance_icons", "distance_icons"),
+      (valentines_theme_path / "icons", "icons"),
+      (valentines_theme_path / "signals", "signals"),
+      (valentines_theme_path / "sounds", "sounds"),
+    ]
+
+    for source_folder_path, asset_type in sources:
+      if not source_folder_path.exists():
+        continue
+      destination_folder_path = THEME_SAVE_PATH / f"theme_packs/{SISSY_MODE_THEME}/{asset_type}"
+      destination_folder_path.mkdir(parents=True, exist_ok=True)
+      shutil.copytree(source_folder_path, destination_folder_path, dirs_exist_ok=True)
+
+    wheel_source_path = valentines_theme_path / "steering_wheel/wheel.png"
+    if wheel_source_path.exists():
+      wheel_save_path = THEME_SAVE_PATH / f"steering_wheels/{SISSY_MODE_THEME}.png"
+      wheel_save_path.parent.mkdir(parents=True, exist_ok=True)
+      shutil.copy2(wheel_source_path, wheel_save_path)
 
   def download_theme(self, theme_component, theme_name, asset_param, frogpilot_toggles):
     self.downloading_theme = True
@@ -428,7 +464,19 @@ class ThemeManager:
     else:
       self.holiday_theme = "stock"
 
-    if self.holiday_theme != "stock":
+    # Sissy Mode takes precedence over everything, including holidays — it is an explicit switch
+    # the user just flipped, so it should win over a date-triggered theme. Same all-categories
+    # shape as the holiday override below.
+    if frogpilot_toggles.sissy_mode:
+      asset_mappings = {
+        "color_scheme": ("colors", SISSY_MODE_THEME),
+        "distance_icons": ("distance_icons", SISSY_MODE_THEME),
+        "icon_pack": ("icons", SISSY_MODE_THEME),
+        "sound_pack": ("sounds", SISSY_MODE_THEME),
+        "turn_signal_pack": ("signals", SISSY_MODE_THEME),
+        "wheel_image": ("wheel_image", SISSY_MODE_THEME)
+      }
+    elif self.holiday_theme != "stock":
       asset_mappings = {
         "color_scheme": ("colors", self.holiday_theme),
         "distance_icons": ("distance_icons", self.holiday_theme),
