@@ -434,37 +434,37 @@ def forcing_stop_alert(CP: car.CarParams, CS: car.CarState, sm: messaging.SubMas
 # ---------------------------------------------------------------------------------------------
 SISSY_TAUNTS = {
   "lane_hugging": [
-    ("FUCKING HELL", "pick a lane and commit to it"),
-    ("ARE YOU DRUNK", "you're wearing the kerb"),
-    ("THE LINES AREN'T SUGGESTIONS", "you absolute liability"),
-    ("oh, sweetheart.", "the middle. aim for the middle."),
+    ("FUCKING HELL YOU LANE-HUGGING CUMRAG", "pick a lane and commit to it before I force you to ride the kerb with my boot on your neck, you dithering little sissy bitch"),
+    ("ARE YOU DRUNK OR JUST BORN RETARDED", "you're wearing the kerb like the desperate road-slut you are, grinding your tiny clit-dick against the paint like it might make you feel real"),
+    ("THE LINES AREN'T SUGGESTIONS YOU BRAINDEAD CUMDUMP", "you absolute liability, a walking traffic hazard with a shaved hole and zero spatial awareness"),
+    ("oh, sweetheart.", "the middle. aim for the middle, you pathetic little lane-humping faggot, before I make you wear the white lines as a collar."),
   ],
   "hard_braking": [
-    ("JESUS CHRIST", "did you not see it coming? at all?"),
-    ("EVERYONE FELT THAT", "including the car behind"),
-    ("BRAKING IS A SKILL", "you do not have it"),
-    ("WHAT THE FUCK WAS THAT", "no, genuinely. what."),
+    ("JESUS FUCKING CHRIST YOU SPINELESS CUNT", "did you not see it coming? at all? you cock-eyed, panic-braking little sissy failure"),
+    ("EVERYONE FELT THAT YOU RUBBER-STAMPING WHORE", "including the car behind and every passenger who now wants to watch you choke on the brake pedal"),
+    ("BRAKING IS A SKILL YOU DON'T FUCKING HAVE", "you do not have it, you never will, you trembling little cock-sleeve who stamps the pedal like a frightened schoolgirl"),
+    ("WHAT THE FUCK WAS THAT YOU STUPID SLAG", "no, genuinely. what the actual fuck was that, you piss-soaked, hard-braking little bitch."),
   ],
   "cornering": [
-    ("THAT WAS DISGUSTING", "the tyres deserve better than you"),
-    ("PASSENGER RATING: 0/10", "one of them is crying"),
-    ("IT'S A ROUNDABOUT", "not a racetrack. you're not fast."),
-    ("bless.", "you genuinely thought that was fine."),
+    ("THAT WAS DISGUSTING YOU TYRE-MURDERING CUNT", "the tyres deserve better than your limp-wristed, sissy hands and your pathetic inability to turn without looking like a drunk whore"),
+    ("PASSENGER RATING: 0/10 YOU EMBARRASSMENT", "one of them is crying and the other is planning to shove the gearstick up your pre-stretched sissy hole"),
+    ("IT'S A ROUNDABOUT YOU DELUDED PRICK", "not a racetrack. you're not fast. you're just a slow, dangerous little faggot who corners like a pregnant cow"),
+    ("bless.", "you genuinely thought that was fine, you pathetic, deluded road-whore with the turning radius of a shopping trolley full of dildos."),
   ],
   "tailgating": [
-    ("GET OFF THEIR ARSE", "it's pathetic and everyone can see it"),
-    ("NOT A RACING DRIVER", "you're a hazard with a licence"),
-    ("BACK OFF", "you absolute embarrassment"),
+    ("GET OFF THEIR ARSE YOU DESPERATE CUNT", "it's pathetic and everyone can see what a lonely little cock-sleeve you are, riding so close you can taste their exhaust"),
+    ("NOT A RACING DRIVER YOU LICENSED HAZARD", "you're a hazard with a licence and a tiny, shrivelled sense of self-worth, tailgating like a desperate sissy begging for attention"),
+    ("BACK OFF YOU ABSOLUTE EMBARRASSMENT", "you absolute embarrassment to the species, you tailgating little sissy bitch with your nose buried in another driver’s arsecrack"),
   ],
   "speeding": [
-    ("SLOW DOWN, CLOWN", "the limit isn't a personal challenge"),
-    ("IN A RUSH?", "same red light. every single time."),
-    ("LOSER", "the car is embarrassed to be seen with you"),
+    ("SLOW DOWN, CLOWN YOU SPEEDING FUCKTOY", "the limit isn't a personal challenge for your pathetic need to feel powerful while your tiny dick flaps in the breeze"),
+    ("IN A RUSH YOU ANXIOUS LITTLE WHORE?", "same red light. every single time. you're not special, you're just late, stupid, and desperate to compensate for your useless cunt"),
+    ("LOSER", "the car is embarrassed to be seen with you, you overcompensating, speed-addicted little faggot with a lead foot and a soft cock"),
   ],
   "distracted": [
-    ("EYES ON THE ROAD", "you unbelievable idiot"),
-    ("PUT IT DOWN", "the bollard won't move for you"),
-    ("aww, did we try?", "we did. it didn't work."),
+    ("EYES ON THE ROAD YOU UNBELIEVABLE IDIOT", "you unbelievable idiot, put the phone down before I make you choke on it while the bollard rearranges your face"),
+    ("PUT IT DOWN YOU ATTENTION-DEFICIT SLUT", "the bollard won't move for you and neither will I when you wrap yourself around it like the distracted, cock-hungry roadkill you are"),
+    ("aww, did we try?", "we did. it didn't work. because you're a distracted, useless little sissy who can't even drive straight without your phone glued to your sticky fingers."),
   ],
 }
 
