@@ -238,10 +238,23 @@ static safety_config tesla_legacy_init(uint16_t param) {
   das_control_msg = tesla_external_panda ? 0x2bfU : 0x2b9U;
 
   // Define message arrays (keeping them as is)
+  // check_relay is false for DAS_bodyControls and true for the other two, on purpose.
+  //
+  // A check_relay entry latches relay_malfunction the moment that address is RECEIVED on its
+  // declared bus (safety.h stock_ecu_check), and relay_malfunction blocks ALL tx and ALL
+  // forwarding (safety.h:255 and :271) until the safety mode is re-inited — i.e. loss of steering
+  // and longitudinal for the rest of the drive. That is the right response for DAS_steeringControl
+  // and APS_eacMonitor, which only the Autopilot computer ever sends, so seeing them here really
+  // does mean the harness relay failed.
+  //
+  // DAS_bodyControls is different: the stock AP sends it continuously for auto wipers and auto
+  // high beam, so if the gateway rebroadcasts it onto this bus the panda would latch and kill
+  // control on a perfectly healthy car. Relay detection is not weakened by excluding it — the two
+  // entries above still cover it, and they are the unambiguous ones.
   static const CanMsg TESLA_TX_LEGACY_MSGS[] = {
     {0x488, 0, 4, .check_relay = true, .disable_static_blocking = true},  // DAS_steeringControl
     {0x27D, 0, 3, .check_relay = true, .disable_static_blocking = true},  // APS_eacMonitor
-    {0x3E9, 0, 8, .check_relay = true, .disable_static_blocking = true},  // DAS_bodyControls (turn indicator)
+    {0x3E9, 0, 8, .check_relay = false},                                  // DAS_bodyControls (turn indicator)
   };
 
   static const CanMsg TESLA_LEGACY_PT_MSGS[] = {
@@ -258,10 +271,12 @@ static safety_config tesla_legacy_init(uint16_t param) {
     {0x3E9, 1, 8, .check_relay = false},                                  // DAS_bodyControls (turn indicator)
   };
 
+  // DAS_bodyControls excluded from the relay check for the same reason as above; DAS_steeringControl
+  // and DAS_control still cover relay failure here.
   static const CanMsg TESLA_TX_LEGACY_HW1_MSGS[] = {
     {0x488, 0, 4, .check_relay = true, .disable_static_blocking = true},  // DAS_steeringControl
     {0x2b9, 0, 8, .check_relay = true, .disable_static_blocking = true},  // DAS_control
-    {0x3E9, 0, 8, .check_relay = true, .disable_static_blocking = true},  // DAS_bodyControls (turn indicator)
+    {0x3E9, 0, 8, .check_relay = false},                                  // DAS_bodyControls (turn indicator)
   };
 
   // Define RX check arrays (keeping them as is)
