@@ -46,9 +46,6 @@ FrogPilotLateralPanel::FrogPilotLateralPanel(FrogPilotSettingsWindow *parent, bo
     {"AlwaysOnLateralLKAS", tr("Enable With LKAS"), tr("<b>Enable \"Always On Lateral\" whenever \"LKAS\" is on, even when openpilot is not engaged.</b>"), ""},
     {"PauseAOLOnBrake", tr("Pause on Brake Press Below"), tr("<b>Pause \"Always On Lateral\" below the set speed while the brake pedal is pressed.</b>"), ""},
 
-    {"LaneCenteringTrim", tr("Lane Centering Trim"), tr("<b>Nudge the car back toward the middle of its lane if it consistently sits to one side.</b><br><br>This corrects a standing bias — it is not lane keeping, and its authority is deliberately small. Check the \"Lane Position: Offset From Centre\" developer metric first: if it already reads near zero, there is nothing here to fix. A device mounted off the centre of the windscreen is a common cause and is better fixed by remounting."), "../../frogpilot/assets/toggle_icons/icon_lane.png"},
-    {"LaneCenteringTrimGain", tr("Trim Strength"), tr("<b>How hard the trim pulls back toward centre.</b><br><br>Start at 1.0. If the car still sits off centre, raise it; if it wanders or feels like it is fighting you, lower it."), ""},
-
     {"LaneChanges", tr("Lane Changes"), tr("<b>Allow openpilot to change lanes.</b>"), "../../frogpilot/assets/toggle_icons/icon_lane.png"},
     {"NudgelessLaneChange", tr("Automatic Lane Changes"), tr("<b>When the turn signal is on, openpilot will automatically change lanes.</b> No steering-wheel nudge required!"), ""},
     {"LaneChangeTime", tr("Lane Change Delay"), tr("<b>Delay between turn signal activation and the start of an automatic lane change.</b>"), ""},
@@ -57,6 +54,8 @@ FrogPilotLateralPanel::FrogPilotLateralPanel(FrogPilotSettingsWindow *parent, bo
     {"OneLaneChange", tr("One Lane Change Per Signal"), tr("<b>Limit automatic lane changes to one per turn-signal activation.</b>"), ""},
 
     {"LateralTune", tr("Lateral Tuning"), tr("<b>Miscellaneous steering control changes</b> to fine-tune how openpilot drives."), "../../frogpilot/assets/toggle_icons/icon_lateral_tune.png"},
+    {"LaneCenteringTrim", tr("Lane Centering Trim"), tr("<b>Nudge the car back toward the middle of its lane if it consistently sits to one side.</b><br><br>This corrects a standing bias — it is not lane keeping, and its authority is deliberately small. Check the \"Lane Position: Offset From Centre\" developer metric first: if it already reads near zero, there is nothing here to fix. A device mounted off the centre of the windscreen is a common cause and is better fixed by remounting."), "../../frogpilot/assets/toggle_icons/icon_lane.png"},
+    {"LaneCenteringTrimGain", tr("Trim Strength"), tr("<b>How hard the trim pulls back toward centre.</b><br><br>Start at 1.0. If the car still sits off centre, raise it; if it wanders or feels like it is fighting you, lower it."), ""},
     {"TurnDesires", tr("Force Turn Desires Below Lane Change Speed"), tr("<b>While driving below the minimum lane change speed with an active turn signal, instruct openpilot to turn left/right.</b>"), ""},
     {"NNFF", tr("Neural Network Feedforward (NNFF)"), tr("<b>Twilsonco's \"Neural Network FeedForward\" controller.</b> Uses a trained neural network model to predict steering torque based on vehicle speed, roll, and past/future planned path data for smoother, model-based steering."), ""},
     {"NNFFLite", tr("Neural Network Feedforward (NNFF) Lite"), tr("<b>A lightweight version of Twilsonco's \"Neural Network FeedForward\" controller.</b> Uses the \"look-ahead\" planned lateral jerk logic from the full model to help smoothen steering adjustments in curves, but does not use the full neural network for torque calculation."), ""},
@@ -155,8 +154,6 @@ FrogPilotLateralPanel::FrogPilotLateralPanel(FrogPilotSettingsWindow *parent, bo
       advancedLateralTuneList->addItem(lateralToggle);
     } else if (aolKeys.contains(param)) {
       aolList->addItem(lateralToggle);
-    } else if (laneCenteringKeys.contains(param)) {
-      lateralToggle = new FrogPilotParamValueControl(param, title, desc, icon, 0.1, 3, QString(), std::map<float, QString>(), 0.1);
     } else if (laneChangeKeys.contains(param)) {
       laneChangeList->addItem(lateralToggle);
     } else if (lateralTuneKeys.contains(param)) {
