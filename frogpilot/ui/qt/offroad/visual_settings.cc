@@ -56,6 +56,8 @@ FrogPilotVisualsPanel::FrogPilotVisualsPanel(FrogPilotSettingsWindow *parent, bo
     {"RoadEdgesWidth", tr("Road Edges Width"), tr("<b>Set the road-edge thickness.</b><br><br>Default matches half of the MUTCD lane-line width standard of 4 inches."), ""},
 
     {"NavigationUI", tr("Navigation Widgets"), tr("<b>Speed limits, and other navigation widgets.</b>"), "../../frogpilot/assets/toggle_icons/icon_map.png"},
+    {"CurveAheadWarning", tr("Curve Ahead Warning"), tr("<b>Warn that a sharp curve is coming before the car starts slowing for it.</b><br><br>openpilot already slows for curves, but until now the first sign of it was the deceleration itself. Only appears for curves sharp enough to need slowing, not every bend."), ""},
+    {"CurveAheadMapSource", tr("Use the Car's Map Data for Curves"), tr("<b>Also use the car's own map curvature, which sees further ahead than the camera.</b><br><br>The warning shows which source it came from. If the map source produces warnings that don't match the road — or your car doesn't provide the data at all — turn this off and the camera-based warning still works."), ""},
     {"RoadNameUI", tr("Road Name"), tr("<b>Display the road name at the bottom of the driving screen</b> using data from \"OpenStreetMap (OSM)\"."), ""},
     {"RoadReferenceUI", tr("Road Number"), tr("<b>Show the road's number alongside its name</b>, such as M6 or A34. Uses data from \"OpenStreetMap (OSM)\"."), ""},
     {"ShowAdvisorySpeed", tr("Show Advisory Speeds"), tr("<b>Show advisory speeds for bends, slip roads and roundabout approaches.</b> These are recommendations, not legal limits, so they are shown separately from the speed limit sign. Uses data from \"OpenStreetMap (OSM)\"."), ""},

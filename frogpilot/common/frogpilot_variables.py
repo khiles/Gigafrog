@@ -668,6 +668,8 @@ class FrogPilotVariables:
     navigation_ui = self.get_value("NavigationUI")
     toggle.road_name_ui = self.get_value("RoadNameUI", condition=navigation_ui) or toggle.debug_mode
     toggle.road_reference_ui = self.get_value("RoadReferenceUI", condition=navigation_ui) or toggle.debug_mode
+    toggle.curve_ahead_warning = self.get_value("CurveAheadWarning")
+    toggle.curve_ahead_map_source = self.get_value("CurveAheadMapSource", condition=toggle.curve_ahead_warning)
     toggle.show_advisory_speed = self.get_value("ShowAdvisorySpeed", condition=navigation_ui) or toggle.debug_mode
     toggle.show_speed_limits = self.get_value("ShowSpeedLimits", condition=navigation_ui) or toggle.debug_mode
     toggle.speed_limit_vienna = self.get_value("UseVienna", condition=navigation_ui)

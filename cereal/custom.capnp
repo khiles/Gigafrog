@@ -247,6 +247,15 @@ struct FrogPilotPlan @0xf98d843bfd7004a3 {
   # in the planner because that is where the offences are counted; needed in selfdrived
   # because that is where the alert text is built.
   sissyTier @44 :UInt8;
+
+  # Curve ahead, from frogpilot_curve_ahead.py. Display only — CSC still does all the
+  # slowing. curveAheadSource is 1 for the model and 2 for the car's own map data, and is
+  # shown on screen so a wrong map reading is visible rather than silently trusted.
+  curveAhead @45 :Bool;
+  curveAheadTime @46 :Float32;         # s until it gets sharp
+  curveAheadDistance @47 :Float32;     # m
+  curveAheadLatAccel @48 :Float32;     # m/s^2 predicted through it at this speed
+  curveAheadSource @49 :UInt8;
 }
 
 struct FrogPilotRadarState @0xb86e6369214c01c8 {

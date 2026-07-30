@@ -199,6 +199,10 @@ void FrogPilotAnnotatedCameraWidget::updateState(const UIState &s, const FrogPil
   roadName = QString::fromStdString(mapdOut.getRoadName());
   roadRef = QString::fromStdString(mapdOut.getWayRef());
   advisorySpeed = mapdOut.getAdvisorySpeed();
+  curveAhead = frogpilotPlan.getCurveAhead();
+  curveAheadTime = frogpilotPlan.getCurveAheadTime();
+  curveAheadDistance = frogpilotPlan.getCurveAheadDistance();
+  curveAheadSource = frogpilotPlan.getCurveAheadSource();
   hazard = QString::fromStdString(mapdOut.getHazard());
   nextHazard = QString::fromStdString(mapdOut.getNextHazard());
   nextHazardDistance = mapdOut.getNextHazardDistance();
@@ -349,7 +353,11 @@ void FrogPilotAnnotatedCameraWidget::paintFrogPilotWidgets(QPainter &p, UIState 
 
   if (frogpilot_toggles.value("map_hazard_alert").toBool()) {
     paintHazard(p);
+  } else {
+    hazardPillVisible = false;  // else paintCurveAhead stacks above a pill that is not drawn
   }
+
+  paintCurveAhead(p);
 
   if (standstillDuration != 0) {
     paintStandstillTimer(p);
@@ -1029,6 +1037,46 @@ void FrogPilotAnnotatedCameraWidget::paintAdvisorySpeed(QPainter &p) {
 // via frogpilot_events, but nothing showed what the hazard was or how far away. Current hazards
 // are drawn solid red; upcoming ones are dimmed and carry a distance, matching how
 // paintAdvisorySpeed distinguishes the two.
+// Warns before the curve speed controller starts slowing, so the deceleration is not the first
+// sign. Shows which source found it — M for the camera model, T for the car's own map data —
+// because the map source's bit layout is inferred rather than confirmed, and a wrong reading
+// needs to be visible on screen rather than silently trusted.
+void FrogPilotAnnotatedCameraWidget::paintCurveAhead(QPainter &p) {
+  if (!curveAhead) {
+    return;
+  }
+
+  QString text = tr("CURVE") + QString("  %1 %2")
+    .arg(QString::number(std::nearbyint(curveAheadDistance * distanceConversion)), distanceUnitShort);
+  if (curveAheadSource == 2) {
+    text += "  T";
+  }
+
+  p.save();
+
+  QFont font = InterFont(35, QFont::DemiBold);
+  int textWidth = QFontMetrics(font).horizontalAdvance(text);
+
+  QSize size(textWidth + 60, 46);
+  // Stacks above the hazard pill, which itself sits above the advisory speed and the road name
+  int bottomMargin = (roadName.isEmpty() && roadRef.isEmpty() ? 5 : 62)
+                     + (advisoryPillVisible ? 57 : 0) + (hazardPillVisible ? 57 : 0);
+  QRect curveRect = QStyle::alignedRect(Qt::LeftToRight, Qt::AlignHCenter | Qt::AlignBottom, size,
+                                        rect().adjusted(0, 0, 0, -bottomMargin));
+
+  p.setBrush(blackColor(166));
+  // Fades in as it gets closer, so an early warning is unobtrusive and a near one is not
+  p.setOpacity(curveAheadTime > 6.0f ? 0.7 : 1.0);
+  p.setPen(QPen(blackColor(), 10));
+  p.drawRoundedRect(curveRect, 22, 22);
+
+  p.setFont(font);
+  p.setPen(QPen(QColor(255, 176, 0), 6));
+  p.drawText(curveRect, Qt::AlignCenter, text);
+
+  p.restore();
+}
+
 void FrogPilotAnnotatedCameraWidget::paintHazard(QPainter &p) {
   QString active = hazard;
   bool upcoming = false;
@@ -1041,6 +1089,7 @@ void FrogPilotAnnotatedCameraWidget::paintHazard(QPainter &p) {
     upcoming = true;
   }
 
+  hazardPillVisible = !active.isEmpty();
   if (active.isEmpty()) {
     return;
   }

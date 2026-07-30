@@ -17,6 +17,7 @@ from openpilot.frogpilot.common.frogpilot_utilities import calculate_lane_width,
 from openpilot.frogpilot.common.frogpilot_variables import CRUISING_SPEED, MINIMUM_LATERAL_ACCELERATION, PLANNER_TIME, THRESHOLD
 from openpilot.frogpilot.controls.lib.conditional_experimental_mode import ConditionalExperimentalMode
 from openpilot.frogpilot.controls.lib.frogpilot_acceleration import FrogPilotAcceleration
+from openpilot.frogpilot.controls.lib.frogpilot_curve_ahead import FrogPilotCurveAhead
 from openpilot.frogpilot.controls.lib.frogpilot_events import FrogPilotEvents
 from openpilot.frogpilot.controls.lib.frogpilot_following import FrogPilotFollowing
 from openpilot.frogpilot.controls.lib.frogpilot_lane_centering import FrogPilotLaneCentering
@@ -31,6 +32,7 @@ class FrogPilotPlanner:
 
     self.frogpilot_acceleration = FrogPilotAcceleration(self)
     self.frogpilot_cem = ConditionalExperimentalMode(self)
+    self.frogpilot_curve_ahead = FrogPilotCurveAhead()
     self.frogpilot_events = FrogPilotEvents(self, error_log, ThemeManager)
     self.frogpilot_following = FrogPilotFollowing(self)
     self.frogpilot_lane_centering = FrogPilotLaneCentering()
@@ -130,6 +132,11 @@ class FrogPilotPlanner:
 
     self.road_curvature_detected = (1 / abs(self.road_curvature))**0.5 < v_ego > CRUISING_SPEED and not (sm["carState"].leftBlinker or sm["carState"].rightBlinker)
 
+    # Warns before CSC starts slowing. Display only — see frogpilot_curve_ahead.py.
+    self.frogpilot_curve_ahead.update(v_ego, self.road_curvature, self.time_to_curve,
+                                     sm["frogpilotCarState"],
+                                     frogpilot_toggles.curve_ahead_map_source)
+
     if not sm["carState"].standstill:
       self.tracking_lead = self.update_lead_status()
 
@@ -195,6 +202,13 @@ class FrogPilotPlanner:
     frogpilotPlan.laneTrimLateralAccel = float(self.frogpilot_lane_centering.trim_lateral_accel)
     frogpilotPlan.sissyOffenceCount = int(self.frogpilot_events.sissy_offence_count)
     frogpilotPlan.sissyTier = int(self.frogpilot_events.sissy_tier)
+
+    curve = self.frogpilot_curve_ahead
+    frogpilotPlan.curveAhead = curve.curve_ahead and frogpilot_toggles.curve_ahead_warning
+    frogpilotPlan.curveAheadTime = float(curve.time_to_curve)
+    frogpilotPlan.curveAheadDistance = float(curve.distance_to_curve)
+    frogpilotPlan.curveAheadLatAccel = float(curve.lateral_accel)
+    frogpilotPlan.curveAheadSource = int(curve.source)
 
     frogpilotPlan.corneringAcceleration = float(self.frogpilot_pose.cornering_acceleration)
     frogpilotPlan.roadGradient = float(self.frogpilot_pose.road_gradient)

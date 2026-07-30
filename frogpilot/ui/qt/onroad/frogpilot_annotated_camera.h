@@ -69,6 +69,7 @@ private:
   void paintPedalIcons(QPainter &p);
   void paintPendingSpeedLimit(QPainter &p);
   void paintAdvisorySpeed(QPainter &p);
+  void paintCurveAhead(QPainter &p);
   void paintHazard(QPainter &p);
   void paintRadarTracks(QPainter &p);
   void paintRoadName(QPainter &p);
@@ -109,6 +110,8 @@ private:
   float advisorySpeed;
   float nextAdvisorySpeed;
   float nextAdvisorySpeedDistance;
+  float curveAheadTime;
+  float curveAheadDistance;
   float nextHazardDistance;
   float nextMapSpeedLimitDistance;
   float cscSpeed;
@@ -179,11 +182,14 @@ private:
   QString nextHazard;
   QString roadName;
   QString roadRef;
+  int curveAheadSource;
   int mapLanes;
   bool mapOneWay;
   // Set by paintAdvisorySpeed so paintHazard, which draws just above it, can stack
   // without duplicating the lookahead condition. Painted in that order.
   bool advisoryPillVisible = false;
+  bool curveAhead;
+  bool hazardPillVisible = false;
   QString speedLimitOffsetStr;
   QString distanceUnitShort;
   QString speedUnit;

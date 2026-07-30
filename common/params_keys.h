@@ -191,6 +191,8 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"CustomCruise", {PERSISTENT, FLOAT, "1.0", "1.0", 2}},
     {"CustomCruiseLong", {PERSISTENT, FLOAT, "5.0", "5.0", 2}},
     {"CustomPersonalities", {PERSISTENT, BOOL, "0", "0", 2}},
+    {"CurveAheadWarning", {PERSISTENT, BOOL, "1", "0", 1}},
+    {"CurveAheadMapSource", {PERSISTENT, BOOL, "1", "0", 2}},
     {"CustomThemes", {PERSISTENT, BOOL, "1", "0", 0}},
     {"CustomUI", {PERSISTENT, BOOL, "1", "0", 1}},
     {"DebugMode", {CLEAR_ON_OFFROAD_TRANSITION, BOOL, "0", "0"}},
