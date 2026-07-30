@@ -35,11 +35,17 @@ if HARDWARE.get_device_type() in ("tici", "tizi"):
 
 AudibleAlert = car.CarControl.HUDControl.AudibleAlert
 
-# Spoken Sissy Mode taunts. Rendered off-device by frogpilot/tools/make_taunt_speech.py and
-# copied here, one wav per line, named by a hash of the text so the pool stays editable.
+# Spoken Sissy Mode taunts, one wav per line, named by a hash of the text so the pool stays
+# editable. Rendered off-device by frogpilot/tools/make_taunt_speech.py.
+#
+# Checked in that order: the repo copy ships with the fork and arrives on the device with any
+# update, so rendered lines are always present without copying anything by hand. /data/media
+# wins when both exist, so a line can still be dropped on the device directly without a commit.
+#
 # Loaded on demand rather than with the rest: soundd keeps every sound resident as float32,
 # which is ~190KB per second of audio, and a pile of spoken lines would be a real memory cost.
-TAUNT_SPEECH_PATH = Path("/data/media/taunt_speech")
+TAUNT_SPEECH_PATHS = (Path("/data/media/taunt_speech"),
+                      Path(BASEDIR) / "frogpilot/assets/taunt_speech")
 TAUNT_CACHE_SIZE = 4
 
 
@@ -171,7 +177,9 @@ class Soundd:
     key = taunt_speech_key(line_1, line_2)
 
     if key not in self.taunt_sounds:
-      path = TAUNT_SPEECH_PATH / f"{key}.wav"
+      path = next((p / f"{key}.wav" for p in TAUNT_SPEECH_PATHS if (p / f"{key}.wav").is_file()), None)
+      if path is None:
+        return None
       try:
         with wave.open(str(path), "r") as wavefile:
           if (wavefile.getnchannels() != 1 or wavefile.getsampwidth() != 2 or

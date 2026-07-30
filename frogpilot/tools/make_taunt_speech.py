@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Render the Sissy Mode taunt lines to speech, to be copied onto the device.
+"""Render the Sissy Mode taunt lines to speech so the car speaks them.
 
     python frogpilot/tools/make_taunt_speech.py --list          # show the lines and voices
-    python frogpilot/tools/make_taunt_speech.py                 # render into ./taunt_speech
+    python frogpilot/tools/make_taunt_speech.py                 # render into the repo asset dir
     python frogpilot/tools/make_taunt_speech.py --voice Daniel  # pick a macOS voice
     python frogpilot/tools/make_taunt_speech.py --out /tmp/x    # somewhere else
 
-Then copy the result to the device:
-
-    scp -r taunt_speech/ comma@<device>:/data/media/
+By default it renders into frogpilot/assets/taunt_speech/ — commit those and they ship with the
+fork, so the device has them after its next update with nothing to copy. Use --out to render
+somewhere else, then scp that to /data/media/taunt_speech/ on the device, which takes priority.
 
 Why this runs here and not on the car: the device has no speech synthesiser, and installing one
 onto AGNOS is fragile across updates. Rendering on a machine that already has a good one is both
@@ -34,7 +34,12 @@ from pathlib import Path
 
 SAMPLE_RATE = 48000
 
-sys.path.append(str(Path(__file__).resolve().parents[2]))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+# Rendering straight into the repo is the point: committed wavs ship with the fork and
+# reach the device on the next update, so nothing has to be copied by hand.
+ASSET_DIR = REPO_ROOT / "frogpilot/assets/taunt_speech"
+
+sys.path.append(str(REPO_ROOT))
 
 
 def taunt_speech_key(line_1: str, line_2: str) -> str:
@@ -45,7 +50,7 @@ def taunt_speech_key(line_1: str, line_2: str) -> str:
 def load_taunts():
   """Read the pool straight from events.py so this can never drift from what the car says."""
   import ast
-  events_py = Path(__file__).resolve().parents[2] / "selfdrive/selfdrived/events.py"
+  events_py = REPO_ROOT / "selfdrive/selfdrived/events.py"
   tree = ast.parse(events_py.read_text())
   for node in tree.body:
     if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "SISSY_TAUNTS" for t in node.targets):
@@ -109,7 +114,8 @@ def pick_renderer():
 
 def main():
   parser = argparse.ArgumentParser()
-  parser.add_argument("--out", default="taunt_speech", help="output directory")
+  parser.add_argument("--out", default=str(ASSET_DIR),
+                      help="output directory (defaults to the in-repo asset dir)")
   parser.add_argument("--voice", default=None, help="voice name (macOS: say -v '?' to list)")
   parser.add_argument("--list", action="store_true", help="print the lines and exit")
   parser.add_argument("--force", action="store_true", help="re-render lines that already exist")
@@ -163,7 +169,11 @@ def main():
       print(f"  {p.name}")
     print("Safe to delete — nothing references them.")
 
-  print(f"\nCopy to the device:\n  scp -r {out_dir}/ comma@<device>:/data/media/")
+  if out_dir.resolve() == ASSET_DIR.resolve():
+    print("\nRendered into the repo. Commit them and they ship to the device on the next update:")
+    print(f"  git add {ASSET_DIR.relative_to(REPO_ROOT)} && git commit -m 'taunt speech' && git push")
+  else:
+    print(f"\nCopy to the device:\n  scp -r {out_dir}/ comma@<device>:/data/media/")
 
 
 if __name__ == "__main__":
