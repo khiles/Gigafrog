@@ -17,6 +17,8 @@ from openpilot.common.swaglog import cloudlog
 from openpilot.system import micd
 from openpilot.system.hardware import HARDWARE
 
+from openpilot.selfdrive.selfdrived.events import SISSY_TAUNTS
+
 from openpilot.frogpilot.common.frogpilot_variables import ACTIVE_THEME_PATH, ERROR_LOGS_PATH, RANDOM_EVENTS_PATH, get_frogpilot_toggles
 
 SAMPLE_RATE = 48000
@@ -242,7 +244,20 @@ class Soundd:
 
   def get_audible_alert(self, sm):
     if self.params_memory.get("TestAlert"):
-      self.update_alert(getattr(AudibleAlert, self.params_memory.get("TestAlert")))
+      # The settings panel derives this name from a param key, so it can name a FrogPilot-only
+      # sound or something that is not an alert at all. An unresolved getattr here would kill
+      # soundd and with it every alert sound, so resolve against both enums and ignore misses.
+      name = self.params_memory.get("TestAlert")
+      alert = getattr(AudibleAlert, name, None)
+      if alert is None:
+        alert = getattr(FrogPilotAudibleAlert, name, None)
+      if alert is not None:
+        if alert == FrogPilotAudibleAlert.sissyTaunt:
+          self.taunt_current = self.load_taunt_speech(*next(
+            (l for lines in SISSY_TAUNTS.values() for l in lines), ("", "")))
+        self.update_alert(alert)
+      else:
+        cloudlog.warning(f"soundd: ignoring unknown TestAlert {name!r}")
       self.params_memory.remove("TestAlert")
     elif not self.openpilot_crashed_played and self.error_log.is_file():
       self.update_alert(AudibleAlert.prompt)
@@ -336,7 +351,12 @@ class Soundd:
       AudibleAlert.warningImmediate: self.frogpilot_toggles.warningImmediate_volume / 100.0,
 
       FrogPilotAudibleAlert.goat: self.frogpilot_toggles.prompt_volume / 100.0,
-      FrogPilotAudibleAlert.startup: self.frogpilot_toggles.engage_volume / 100.0
+      FrogPilotAudibleAlert.startup: self.frogpilot_toggles.engage_volume / 100.0,
+
+      # Without an entry here it falls into the 1.01 sentinel below, which means "use the
+      # microphone-driven ambient volume" — and in a quiet cabin that bottoms out around
+      # 0.13, so spoken taunts were barely audible next to every mapped alert.
+      FrogPilotAudibleAlert.sissyTaunt: self.frogpilot_toggles.sissy_volume / 100.0
     }
 
     for sound in sound_list:

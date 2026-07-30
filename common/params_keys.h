@@ -353,6 +353,7 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"RainbowPath", {PERSISTENT, BOOL, "0", "0", 1}},
     {"RandomEvents", {PERSISTENT, BOOL, "0", "0", 1}},
     {"SissyMode", {PERSISTENT, BOOL, "0", "0", 1}},
+    {"SissyTauntVolume", {PERSISTENT, FLOAT, "100", "100", 1}},
     {"TeslaTurnIndicator", {PERSISTENT, BOOL, "0", "0", 3}},
     {"RandomThemes", {PERSISTENT, BOOL, "0", "0", 1}},
     {"RandomThemesHolidays", {PERSISTENT, BOOL, "0", "0", 1}},

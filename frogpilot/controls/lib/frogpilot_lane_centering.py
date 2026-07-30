@@ -53,11 +53,17 @@ MIN_SPEED = 5.0            # m/s
 MIN_LANE_WIDTH = 2.5       # m, narrower than this and we are not looking at a lane
 MAX_LANE_WIDTH = 4.5       # m
 
-# Trim. Small on purpose: this corrects a standing bias, it is not a lane-keeping controller,
-# and it is working against a model that pushes back.
+# Trim. Still modest — this corrects a standing bias, it is not a lane-keeping controller, and it
+# works against a model that actively pushes back.
+#
+# The first values were too weak to fix a real kerb-hugging bias, and worse, the cap was the
+# binding constraint rather than the gain: at a 0.4m offset the demand hit 0.3 m/s^2 by dial 1.43,
+# so turning the dial higher did nothing at all. Both were raised together so the dial has real
+# range across its span. 1.0 m/s^2 is still well under the ~3.0 m/s^2 the curvature limiter allows
+# and the ~3.6 the car itself permits; at 20 m/s it is a 400m-radius drift, not a swerve.
 TRIM_DEADBAND = 0.05       # m, below this there is nothing worth correcting
-TRIM_GAIN = 0.6            # (m/s^2) per m of offset, before the user's own gain
-TRIM_MAX_ACCEL = 0.3       # m/s^2, hard cap on the demand
+TRIM_GAIN = 1.2            # (m/s^2) per m of offset, before the user's own gain
+TRIM_MAX_ACCEL = 1.0       # m/s^2, hard cap on the demand
 
 
 class FrogPilotLaneCentering:
