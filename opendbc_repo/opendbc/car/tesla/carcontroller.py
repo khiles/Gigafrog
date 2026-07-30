@@ -117,7 +117,14 @@ class CarController(CarControllerBase):
     # address, we cannot read its DAS_bodyControlsCounter (tesla_raven_party.dbc does not
     # declare one), and two senders with independent counters make the BCM reject frames
     # intermittently. Confirming that needs a chassis-bus capture; do not guess at it again.
-    if self.frame % BLINKER_SEND_PERIOD == 0:
+    #
+    # OFF BY DEFAULT. Two attempts to stop this message disturbing the lights both failed on the
+    # car: first DAS_highLowBeamOffReason defaulted to 0, which the DBC defines as HIGH_BEAM_ON,
+    # and then mirroring the stock AP's own light fields still left the headlights coming on
+    # during lane changes. We are transmitting an address the stock Autopilot also owns and whose
+    # Raven bit layout has never been confirmed against a capture, so the honest position is that
+    # this is unproven and should not run unless the driver opts in.
+    if frogpilot_toggles.tesla_turn_indicator and self.frame % BLINKER_SEND_PERIOD == 0:
       blinker_cmd = CC.leftBlinker or CC.rightBlinker
       if blinker_cmd:
         self.body_controls_indicator = 1 if CC.leftBlinker else 2  # LEFT/RIGHT

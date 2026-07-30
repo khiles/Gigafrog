@@ -13,6 +13,8 @@ Two things make this worth testing rather than eyeballing:
    so absent must mean "unknown", never a confident zero. The absent/stale tests are the primary
    signal here, not edge cases.
 """
+import math
+
 from collections import defaultdict
 
 from opendbc.car.tesla.carstate import CarState, ROAD_SIGN_MIN_CONF, _msg_alive
@@ -23,30 +25,25 @@ FRESH = NOW - 100_000_000     # 100ms ago
 STALE = NOW - 2_000_000_000   # 2s ago
 
 
-class FakeVL(dict):
-  """Mirrors VLDict: a message is registered on first __getitem__, which is also what
-  populates ts_nanos and vl_all. Reading ts_nanos before that would KeyError."""
-  def __init__(self, cp):
-    super().__init__()
-    self.cp = cp
-
-  def __getitem__(self, key):
-    if key not in self:
-      self.cp.register(key)
-    return super().__getitem__(key)
-
-
 class FakeCP:
+  """_msg_alive registers explicitly via _add_message with a NaN frequency rather than letting
+  VLDict do it lazily, because lazy registration passes freq=None, which leaves ignore_alive
+  False — and a never-arriving message then drags the whole parser's can_valid down and blocks
+  engagement. This fake asserts the NaN is actually passed."""
   def __init__(self, frames=None, ts=None, now=NOW):
     self._frames = frames or {}
     self._ts = ts or {}
     self.last_nonempty_nanos = now
-    self.vl = FakeVL(self)
+    self.vl: dict = {}
     self.vl_all: dict = {}
     self.ts_nanos: dict = {}
+    self.registered_freqs: dict = {}
 
-  def register(self, msg):
-    dict.__setitem__(self.vl, msg, defaultdict(float))
+  def _add_message(self, msg, freq=None):
+    assert freq is not None and math.isnan(freq), \
+      f"{msg} registered with freq={freq!r}; must be NaN or it can invalidate the parser"
+    self.registered_freqs[msg] = freq
+    self.vl[msg] = defaultdict(float)
     self.vl_all[msg] = self._frames.get(msg, defaultdict(list))
     self.ts_nanos[msg] = defaultdict(int, self._ts.get(msg, {}))
 
@@ -102,10 +99,20 @@ def test_losing_the_message_clears_retained_values():
   assert cs.road_sign == {}
 
 
-def test_msg_alive_registers_lazily():
-  # ts_nanos only exists after the message is registered, so _msg_alive must touch vl first
+def test_msg_alive_registers_with_nan_frequency():
+  """The engagement bug: registering an optional message without a NaN frequency leaves
+  ignore_alive False, so a message that never arrives makes can_valid False for the entire
+  parser and the car reports Car Unrecognized. FakeCP._add_message asserts the NaN."""
   cp = FakeCP(ts={"UI_solarData": {"UI_isSunUp": FRESH}})
   assert _msg_alive(cp, "UI_solarData", "UI_isSunUp") is True
+  assert math.isnan(cp.registered_freqs["UI_solarData"])
+
+
+def test_msg_alive_registers_only_once():
+  cp = FakeCP(ts={"UI_solarData": {"UI_isSunUp": FRESH}})
+  for _ in range(5):
+    _msg_alive(cp, "UI_solarData", "UI_isSunUp")
+  assert list(cp.registered_freqs) == ["UI_solarData"]
 
 
 def test_msg_alive_false_for_never_seen():

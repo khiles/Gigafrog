@@ -713,6 +713,7 @@ class FrogPilotVariables:
 
     toggle.random_events = self.get_value("RandomEvents")
     toggle.sissy_mode = self.get_value("SissyMode")
+    toggle.tesla_turn_indicator = self.get_value("TeslaTurnIndicator")
 
     screen_management = self.get_value("ScreenManagement")
     toggle.screen_brightness = max(self.get_value("ScreenBrightness", cast=float, condition=screen_management), 1)

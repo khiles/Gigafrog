@@ -36,11 +36,17 @@ def _msg_alive(cp, msg: str, sig: str) -> bool:
   on this rather than on its value.
 
   ts_nanos is 0 until the first frame arrives, and last_nonempty_nanos is the newest frame seen
-  on the same bus, so both sides share a clock and no external time source is needed. Touch
-  cp.vl first: messages are registered lazily by VLDict.__getitem__, and ts_nanos is only
-  populated by that registration.
+  on the same bus, so both sides share a clock and no external time source is needed.
+
+  Registration must be explicit, with a NaN frequency. Letting VLDict.__getitem__ register it
+  lazily passes freq=None, which leaves MessageState.ignore_alive False — and a state with no
+  timestamps then reports valid() False forever, which drags the WHOLE parser's can_valid down
+  and blocks engagement with "Car Unrecognized". NaN is what sets ignore_alive (parser.py:177),
+  which is exactly right for a message we are only probing for: absent is an expected outcome
+  here, not a fault.
   """
-  cp.vl[msg]
+  if msg not in cp.vl:
+    cp._add_message(msg, float("nan"))
   ts = cp.ts_nanos[msg][sig]
   return ts != 0 and (cp.last_nonempty_nanos - ts) < MSG_TIMEOUT_NANOS
 
