@@ -1,3 +1,4 @@
+import hashlib
 import math
 import numpy as np
 import time
@@ -34,6 +35,18 @@ if HARDWARE.get_device_type() in ("tici", "tizi"):
 
 AudibleAlert = car.CarControl.HUDControl.AudibleAlert
 
+# Spoken Sissy Mode taunts. Rendered off-device by frogpilot/tools/make_taunt_speech.py and
+# copied here, one wav per line, named by a hash of the text so the pool stays editable.
+# Loaded on demand rather than with the rest: soundd keeps every sound resident as float32,
+# which is ~190KB per second of audio, and a pile of spoken lines would be a real memory cost.
+TAUNT_SPEECH_PATH = Path("/data/media/taunt_speech")
+TAUNT_CACHE_SIZE = 4
+
+
+def taunt_speech_key(line_1: str, line_2: str) -> str:
+  """Hash of the exact displayed text. Must match make_taunt_speech.py or nothing plays."""
+  return hashlib.sha1(f"{line_1}\n{line_2}".encode()).hexdigest()[:16]
+
 # FrogPilot variables
 FrogPilotAudibleAlert = custom.FrogPilotCarControl.HUDControl.AudibleAlert
 
@@ -66,6 +79,8 @@ sound_list: dict[int, tuple[str, int | None, float]] = {
   FrogPilotAudibleAlert.startup: ("startup.wav", 1, MAX_VOLUME),
   FrogPilotAudibleAlert.thisIsFine: ("this_is_fine.wav", 1, MAX_VOLUME),
   FrogPilotAudibleAlert.uwu: ("uwu.wav", 1, MAX_VOLUME),
+  # Resolved at play time from the alert text, so there is no fixed file here.
+  FrogPilotAudibleAlert.sissyTaunt: (None, 1, MAX_VOLUME),
 }
 if HARDWARE.get_device_type() in ("tici", "tizi"):
   sound_list.update({
@@ -104,6 +119,10 @@ class Soundd:
 
     self.previous_sound_pack = None
 
+    # key -> samples, bounded so a long taunt pool cannot grow soundd's memory
+    self.taunt_sounds: dict[str, np.ndarray] = {}
+    self.taunt_current: np.ndarray | None = None
+
     self.error_log = ERROR_LOGS_PATH / "error.txt"
     self.random_events_directory = RANDOM_EVENTS_PATH / "sounds"
 
@@ -115,6 +134,8 @@ class Soundd:
     # Load all sounds
     for sound in sound_list:
       filename, play_count, volume = sound_list[sound]
+      if filename is None:  # resolved at play time, see load_taunt_speech
+        continue
 
       random_events_path = self.random_events_directory / filename
       sounds_path = self.sound_directory / filename
@@ -140,13 +161,49 @@ class Soundd:
       length = wavefile.getnframes()
       self.loaded_sounds[sound] = np.frombuffer(wavefile.readframes(length), dtype=np.int16).astype(np.float32) / (2**16/2)
 
+  def load_taunt_speech(self, line_1, line_2):
+    """Resolve the spoken line for the taunt about to play, loading it only if needed.
+
+    A missing file is normal, not a fault: the pool is meant to be edited and a line that has
+    not been rendered yet simply has no audio. Never raise here — soundd dying takes every
+    alert sound with it, including the safety-relevant ones.
+    """
+    key = taunt_speech_key(line_1, line_2)
+
+    if key not in self.taunt_sounds:
+      path = TAUNT_SPEECH_PATH / f"{key}.wav"
+      try:
+        with wave.open(str(path), "r") as wavefile:
+          if (wavefile.getnchannels() != 1 or wavefile.getsampwidth() != 2 or
+              wavefile.getframerate() != SAMPLE_RATE):
+            cloudlog.warning(f"soundd: {path} is not mono/16-bit/{SAMPLE_RATE}Hz, skipping")
+            return None
+          frames = wavefile.readframes(wavefile.getnframes())
+        samples = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / (2**16/2)
+      except FileNotFoundError:
+        return None
+      except Exception as exc:
+        cloudlog.warning(f"soundd: could not load {path}: {exc}")
+        return None
+
+      if len(self.taunt_sounds) >= TAUNT_CACHE_SIZE:
+        self.taunt_sounds.pop(next(iter(self.taunt_sounds)))
+      self.taunt_sounds[key] = samples
+
+    return self.taunt_sounds[key]
+
   def get_sound_data(self, frames): # get "frames" worth of data from the current alert sound, looping when required
 
     ret = np.zeros(frames, dtype=np.float32)
 
     if self.current_alert != AudibleAlert.none:
       num_loops = sound_list[self.current_alert][1]
-      sound_data = self.loaded_sounds[self.current_alert]
+      if self.current_alert == FrogPilotAudibleAlert.sissyTaunt:
+        sound_data = self.taunt_current
+        if sound_data is None:  # line not rendered yet — stay silent rather than crash
+          return ret
+      else:
+        sound_data = self.loaded_sounds[self.current_alert]
       written_frames = 0
 
       current_sound_frame = self.current_sound_frame % len(sound_data)
@@ -167,7 +224,10 @@ class Soundd:
     data_out[:frames, 0] = self.get_sound_data(frames)
 
   def update_alert(self, new_alert):
-    current_alert_played_once = self.current_alert == AudibleAlert.none or self.current_sound_frame > len(self.loaded_sounds[self.current_alert])
+    playing = self.taunt_current if self.current_alert == FrogPilotAudibleAlert.sissyTaunt \
+              else self.loaded_sounds.get(self.current_alert)
+    current_alert_played_once = self.current_alert == AudibleAlert.none or playing is None \
+                                or self.current_sound_frame > len(playing)
     if self.current_alert != new_alert and (new_alert != AudibleAlert.none or current_alert_played_once):
       self.current_alert = new_alert
       self.current_sound_frame = 0
@@ -183,9 +243,15 @@ class Soundd:
       new_alert = sm['selfdriveState'].alertSound.raw
 
       # FrogPilot variables
-      new_frogpilot_alert = sm['frogpilotSelfdriveState'].alertSound.raw
+      fpss = sm['frogpilotSelfdriveState']
+      new_frogpilot_alert = fpss.alertSound.raw
       if new_alert == AudibleAlert.none and new_frogpilot_alert != FrogPilotAudibleAlert.none:
         new_alert = new_frogpilot_alert
+
+      # Resolve the spoken line before switching to it. The text on this message is exactly what
+      # is being displayed, so hashing it here needs no extra plumbing from the planner.
+      if new_alert == FrogPilotAudibleAlert.sissyTaunt and new_alert != self.current_alert:
+        self.taunt_current = self.load_taunt_speech(fpss.alertText1, fpss.alertText2)
 
       self.update_alert(new_alert)
     elif check_selfdrive_timeout_alert(sm):

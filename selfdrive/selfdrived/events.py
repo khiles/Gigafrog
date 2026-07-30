@@ -1278,27 +1278,27 @@ FROGPILOT_EVENTS: dict[int, dict[str, Alert | AlertCallbackType]] = {
   # USER_DISABLE, IMMEDIATE_DISABLE, SOFT_DISABLE, OVERRIDE_* and NO_ENTRY, and to none of these.
   # A joke must never be able to disengage the car.
   FrogPilotEventName.sissyLaneHugging: {
-    ET.PERMANENT: sissy_taunt_alert("lane_hugging", FrogPilotAudibleAlert.uwu),
+    ET.PERMANENT: sissy_taunt_alert("lane_hugging", FrogPilotAudibleAlert.sissyTaunt),
   },
 
   FrogPilotEventName.sissyHardBraking: {
-    ET.PERMANENT: sissy_taunt_alert("hard_braking", FrogPilotAudibleAlert.angry),
+    ET.PERMANENT: sissy_taunt_alert("hard_braking", FrogPilotAudibleAlert.sissyTaunt),
   },
 
   FrogPilotEventName.sissyCornering: {
-    ET.PERMANENT: sissy_taunt_alert("cornering", FrogPilotAudibleAlert.noice),
+    ET.PERMANENT: sissy_taunt_alert("cornering", FrogPilotAudibleAlert.sissyTaunt),
   },
 
   FrogPilotEventName.sissyTailgating: {
-    ET.PERMANENT: sissy_taunt_alert("tailgating", FrogPilotAudibleAlert.angry),
+    ET.PERMANENT: sissy_taunt_alert("tailgating", FrogPilotAudibleAlert.sissyTaunt),
   },
 
   FrogPilotEventName.sissySpeeding: {
-    ET.PERMANENT: sissy_taunt_alert("speeding", FrogPilotAudibleAlert.doc),
+    ET.PERMANENT: sissy_taunt_alert("speeding", FrogPilotAudibleAlert.sissyTaunt),
   },
 
   FrogPilotEventName.sissyDistracted: {
-    ET.PERMANENT: sissy_taunt_alert("distracted", FrogPilotAudibleAlert.uwu),
+    ET.PERMANENT: sissy_taunt_alert("distracted", FrogPilotAudibleAlert.sissyTaunt),
   },
 
   FrogPilotEventName.speedLimitChanged: {

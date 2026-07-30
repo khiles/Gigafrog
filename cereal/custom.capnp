@@ -47,6 +47,10 @@ struct FrogPilotCarControl @0x81c2f05a394cf4af {
       startup @20;
       thisIsFine @21;
       uwu @22;
+
+      # Spoken Sissy Mode taunt. soundd resolves the actual audio from a hash of the
+      # alert text, so one enumerant covers every line.
+      sissyTaunt @23;
     }
   }
 }
