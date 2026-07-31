@@ -200,9 +200,11 @@ def hardware_thread(end_event, hw_queue) -> None:
   in_car = False
   engaged_prev = False
   pwrsave = False
+  amp_enabled = True
   offroad_cycle_count = 0
 
   params = Params()
+  params_memory = Params(memory=True)
   power_monitor = PowerMonitoring()
 
   uptime_offroad: float = params.get("UptimeOffroad", return_default=True)
@@ -376,6 +378,17 @@ def hardware_thread(end_event, hw_queue) -> None:
     should_pwrsave = not onroad_conditions["ignition"] and msg.deviceState.screenBrightnessPercent < 1e-3
     if should_pwrsave != pwrsave or (count == 0):
       HARDWARE.set_power_save(should_pwrsave)
+
+    # Good Girl Mode speaks while parked, and power save shuts the amplifier down — so without
+    # this the session is silent once the screen sleeps. Only the amp is re-asserted; CPU
+    # offlining and the governor are left exactly as set_power_save decided, so this costs the
+    # amp's ~100mW and nothing else. set_power_save writes the amp bit itself, which is why a
+    # pwrsave transition has to re-assert the override afterwards.
+    amp_desired = (not should_pwrsave) or params_memory.get_bool("GoodGirlActive")
+    if amp_desired != amp_enabled or should_pwrsave != pwrsave or (count == 0):
+      HARDWARE.set_amplifier_enabled(amp_desired)
+      amp_enabled = amp_desired
+
     pwrsave = should_pwrsave
 
     if should_start:

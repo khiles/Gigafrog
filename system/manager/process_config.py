@@ -80,6 +80,19 @@ def allow_logging(started: bool, params: Params, CP: car.CarParams, frogpilot_to
 def allow_uploads(started: bool, params: Params, CP: car.CarParams, frogpilot_toggles: SimpleNamespace) -> bool:
   return not frogpilot_toggles.no_uploads or frogpilot_toggles.no_onroad_uploads
 
+def soundd_gate(started: bool, params: Params, CP: car.CarParams, frogpilot_toggles: SimpleNamespace) -> bool:
+  # soundd is normally onroad-only. Good Girl Mode speaks while parked, so it also runs offroad —
+  # but only while the toggle is on AND a session is actually live, never permanently.
+  #
+  # driverview stays the first term so soundd is not restarted across the offroad->onroad edge.
+  # That is why this reuses soundd rather than adding a second offroad speaker process: a separate
+  # process would have to release the audio device before soundd could open it, and losing
+  # engage/disengage/warning sounds for the first seconds of a drive is not acceptable.
+  if driverview(started, params, CP, frogpilot_toggles):
+    return True
+  return getattr(frogpilot_toggles, "good_girl_mode", False) and params_memory.get_bool("GoodGirlActive")
+
+
 def run_mapd(started: bool, params: Params, CP: car.CarParams, frogpilot_toggles: SimpleNamespace) -> bool:
   # mapd binary is incompatible with tizi (C3X) — skip it there to avoid blocking engagement
   if HARDWARE.get_device_type() == "tizi":
@@ -113,7 +126,7 @@ procs = [
   PythonProcess("dmonitoringmodeld", "selfdrive.modeld.dmonitoringmodeld", driverview, enabled=(WEBCAM or not PC)),
 
   PythonProcess("sensord", "system.sensord.sensord", only_onroad, enabled=not PC),
-  PythonProcess("soundd", "selfdrive.ui.soundd", driverview),
+  PythonProcess("soundd", "selfdrive.ui.soundd", soundd_gate),
   PythonProcess("locationd", "selfdrive.locationd.locationd", only_onroad),
   NativeProcess("_pandad", "selfdrive/pandad", ["./pandad"], always_run, enabled=False),
   PythonProcess("calibrationd", "selfdrive.locationd.calibrationd", only_onroad),

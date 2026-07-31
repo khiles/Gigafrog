@@ -57,6 +57,10 @@ TIER_VOICES = {
   "brutal": None,
 }
 
+# Good Girl Mode lines are spoken while parked, so a different voice from the driving taunts is
+# often what you want. None means fall back to --voice or the system default.
+GOOD_GIRL_VOICE = None
+
 # The car. Override with --device or FROGPILOT_DEVICE.
 DEVICE_HOST = os.environ.get("FROGPILOT_DEVICE", "192.168.1.11")
 DEVICE_USER = "comma"
@@ -89,6 +93,17 @@ def load_taunts():
     if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "SISSY_TAUNTS" for t in node.targets):
       return ast.literal_eval(node.value)
   raise SystemExit(f"could not find SISSY_TAUNTS in {events_py}")
+
+
+def load_good_girl():
+  """Read the parked pool out of events.py, same as load_taunts."""
+  import ast
+  events_py = REPO_ROOT / "selfdrive/selfdrived/events.py"
+  tree = ast.parse(events_py.read_text())
+  for node in tree.body:
+    if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "GOOD_GIRL_LINES" for t in node.targets):
+      return ast.literal_eval(node.value)
+  raise SystemExit(f"could not find GOOD_GIRL_LINES in {events_py}")
 
 
 def have(binary):
@@ -242,6 +257,9 @@ def main():
         print(f"  {tier}:")
         for line_1, line_2 in lines:
           print(f"    [{taunt_speech_key(line_1)}] {line_1} / {line_2}")
+    print("\ngood_girl (spoken while parked):")
+    for line_1, line_2 in load_good_girl():
+      print(f"    [{taunt_speech_key(line_1)}] {line_1} / {line_2}")
     if platform.system() == "Darwin":
       print("\nVoices: say -v '?'")
     return
@@ -290,6 +308,30 @@ def main():
         except subprocess.CalledProcessError as exc:
           failed += 1
           print(f"  FAILED {key}: {exc}")
+
+  # Same out_dir and same keys set as the taunts, deliberately: deploy() uses rsync --delete, so
+  # rendering this pool anywhere else would have a deploy remove the other pool from the device.
+  for line_1, line_2 in load_good_girl():
+    key = taunt_speech_key(line_1)
+    keys.add(key)
+    out_path = out_dir / f"{key}.wav"
+    spoken = f"{line_1}. {line_2}"
+    voice = GOOD_GIRL_VOICE or args.voice
+
+    if out_path.exists() and not args.force:
+      if manifest.get(key) == f"[{voice or 'default'}] {spoken}":
+        skipped += 1
+        continue
+      stale_text += 1
+
+    try:
+      render(spoken, out_path, voice)
+      manifest[key] = f"[{voice or 'default'}] {spoken}"
+      rendered += 1
+      print(f"  {key}  {line_1[:48]}")
+    except subprocess.CalledProcessError as exc:
+      failed += 1
+      print(f"  FAILED {key}: {exc}")
 
   # Lines that were edited leave their old audio behind; say so rather than silently hoarding
   stale = [p for p in out_dir.glob("*.wav") if p.stem not in keys]

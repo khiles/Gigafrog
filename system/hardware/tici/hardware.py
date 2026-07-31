@@ -364,6 +364,14 @@ class Tici(HardwareBase):
     except Exception:
       return 0
 
+  def set_amplifier_enabled(self, enabled):
+    # Power save shuts the amplifier down, which is correct when parked and silent but makes a
+    # parked feature that speaks inaudible. This re-asserts only that bit; CPU offlining and the
+    # governor stay exactly as power save left them, so the cost is the amp's ~100mW and nothing
+    # more. The config registers survive power save, so no re-initialisation is needed here.
+    if self.amplifier is not None:
+      self.amplifier.set_global_shutdown(amp_disabled=not enabled)
+
   def set_power_save(self, powersave_enabled):
     # amplifier, 100mW at idle
     if self.amplifier is not None:

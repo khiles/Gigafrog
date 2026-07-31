@@ -354,6 +354,14 @@ inline static std::unordered_map<std::string, ParamKeyAttributes> keys = {
     {"RadarTracksUI", {PERSISTENT, BOOL, "0", "0", 3}},
     {"RainbowPath", {PERSISTENT, BOOL, "0", "0", 1}},
     {"RandomEvents", {PERSISTENT, BOOL, "0", "0", 1}},
+    {"GoodGirlMode", {PERSISTENT, BOOL, "0", "0", 1}},
+    {"GoodGirlInterval", {PERSISTENT, INT, "300", "300", 1}},
+    {"GoodGirlSession", {PERSISTENT, INT, "30", "30", 1}},
+    {"GoodGirlVolume", {PERSISTENT, FLOAT, "60", "60", 1}},
+    // Live session state. Cleared on the onroad transition as a second layer under the explicit
+    // stop in frogpilot_process, so the car being switched on can never leave a session running.
+    {"GoodGirlActive", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, BOOL}},
+    {"GoodGirlLine", {CLEAR_ON_MANAGER_START | CLEAR_ON_ONROAD_TRANSITION, STRING}},
     {"SissyMode", {PERSISTENT, BOOL, "0", "0", 1}},
     {"SissyModeCruelty", {PERSISTENT, INT, "3", "3", 1}},
     {"SissyTauntVolume", {PERSISTENT, FLOAT, "100", "100", 1}},

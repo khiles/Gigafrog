@@ -3,7 +3,7 @@ import datetime
 import json
 import time
 
-from cereal import messaging
+from cereal import log, messaging
 from openpilot.common.params import Params
 from openpilot.common.realtime import DT_MDL, Priority, Ratekeeper, config_realtime_process
 from openpilot.common.time_helpers import system_time_valid
@@ -15,6 +15,8 @@ from openpilot.frogpilot.common.frogpilot_utilities import ThreadManager, flash_
 from openpilot.frogpilot.common.frogpilot_variables import ERROR_LOGS_PATH, FrogPilotVariables
 from openpilot.frogpilot.controls.frogpilot_planner import FrogPilotPlanner
 from openpilot.frogpilot.system.frogpilot_stats import send_stats
+from openpilot.frogpilot.system.good_girl_mode import GoodGirlSession
+from openpilot.selfdrive.selfdrived.events import GOOD_GIRL_LINES
 from openpilot.frogpilot.system.frogpilot_tracking import FrogPilotTracking
 
 ASSET_CHECK_RATE = (1 / DT_MDL)
@@ -36,8 +38,14 @@ def check_assets(now, theme_manager, thread_manager, params, params_memory, frog
   if params_memory.get_bool("DownloadMaps"):
     thread_manager.run_with_lock(update_maps, (now, params, params_memory, True))
 
-def transition_offroad(frogpilot_planner, theme_manager, thread_manager, time_validated, sm, params, frogpilot_toggles):
+def transition_offroad(frogpilot_planner, theme_manager, thread_manager, time_validated, sm, params, frogpilot_toggles, good_girl=None):
   params.put("LastGPSPosition", json.dumps(frogpilot_planner.gps_position))
+
+  # Starting here rather than on "not started" means a session only ever begins on a real park,
+  # never on a boot into offroad — otherwise leaving the device powered in a parked car would
+  # start one every time the manager restarted.
+  if good_girl is not None and frogpilot_toggles.good_girl_mode:
+    good_girl.start(time.monotonic())
 
   if frogpilot_toggles.lock_doors_timer != 0:
     thread_manager.run_with_lock(lock_doors, (frogpilot_toggles.lock_doors_timer, sm, params), report=False)
@@ -88,11 +96,14 @@ def frogpilot_thread():
 
   config_realtime_process(5, Priority.CTRL_LOW)
 
+  good_girl = GoodGirlSession()
+
   pm = messaging.PubMaster(["frogpilotPlan"])
   sm = messaging.SubMaster(["carControl", "carState", "controlsState", "deviceState", "driverMonitoringState",
                             "gpsLocation", "gpsLocationExternal", "liveParameters", "livePose", "managerState", "modelV2",
                             "onroadEvents", "pandaStates", "radarState", "selfdriveState", "frogpilotCarState",
-                            "frogpilotSelfdriveState", "frogpilotModelV2", "frogpilotOnroadEvents", "mapdOut"],
+                            "frogpilotSelfdriveState", "frogpilotModelV2", "frogpilotOnroadEvents", "mapdOut",
+                            "peripheralState"],
                             poll="modelV2")
 
   params = Params(return_defaults=True)
@@ -123,10 +134,17 @@ def frogpilot_thread():
       frogpilot_planner.shutdown()
 
       frogpilot_toggles = update_toggles(frogpilot_variables, started, theme_manager, thread_manager, time_validated, params, frogpilot_toggles)
-      transition_offroad(frogpilot_planner, theme_manager, thread_manager, time_validated, sm, params, frogpilot_toggles)
+      transition_offroad(frogpilot_planner, theme_manager, thread_manager, time_validated, sm, params, frogpilot_toggles, good_girl)
 
       run_update_checks = True
     elif started and not started_previously:
+      # First thing on the ignition edge: nothing about the parked session may outlive the car
+      # being switched on. The session's own `started` check covers this too; this is the
+      # belt-and-braces that also clears the params soundd and the manager gate read.
+      good_girl.stop("ignition")
+      params_memory.put_bool("GoodGirlActive", False)
+      params_memory.remove("GoodGirlLine")
+
       frogpilot_planner = FrogPilotPlanner(error_log, theme_manager)
       frogpilot_tracking = FrogPilotTracking(frogpilot_planner, frogpilot_toggles)
 
@@ -138,6 +156,17 @@ def frogpilot_thread():
 
       frogpilot_tracking.update(now, time_validated, sm, frogpilot_toggles)
     elif not started:
+      peripheral = sm["peripheralState"]
+      voltage = None if peripheral.pandaType == log.PandaState.PandaType.unknown else peripheral.voltage / 1e3
+      line = good_girl.update(time.monotonic(), started, GOOD_GIRL_LINES, frogpilot_toggles,
+                              sm["deviceState"].carBatteryCapacityUwh, voltage)
+      params_memory.put_bool("GoodGirlActive", good_girl.active)
+      if line is not None:
+        params_memory.put("GoodGirlLine", line)
+      elif not good_girl.active:
+        # A line written to a soundd that never came up must not survive the session.
+        params_memory.remove("GoodGirlLine")
+
       frogpilot_plan_send = messaging.new_message("frogpilotPlan")
       frogpilot_plan_send.frogpilotPlan.frogpilotToggles = json.dumps(vars(frogpilot_toggles))
       frogpilot_plan_send.frogpilotPlan.themeUpdated = theme_manager.theme_updated

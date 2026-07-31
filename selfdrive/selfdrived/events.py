@@ -648,6 +648,33 @@ SISSY_PRAISE = [
   ("A MOMENT OF COMPETENCE", "cherish it. it won't last. nothing good about you ever does, and it never, ever will. you are temporary competence wrapped in permanent, irreversible, publicly documented failure"),
 ]
 
+# Good Girl Mode. Spoken aloud while the car is PARKED — the drive is over, the engine is off,
+# and the driver is still sitting in it. Every line is about that: the sitting, the not leaving,
+# the doing of nothing in a stationary vehicle.
+#
+# Same flat (line_1, line_2) shape as SISSY_PRAISE. line_1 is the headline and the only part
+# hashed for the audio filename; line_2 is spoken too but can be edited without renaming the wav
+# (make_taunt_speech.py keeps a manifest so that case still re-renders).
+#
+# Re-run frogpilot/tools/make_taunt_speech.py --deploy after editing, or the edited line is silent.
+#
+# These are starter lines and are written to be replaced — the wording is yours, as with
+# SISSY_TAUNTS above.
+GOOD_GIRL_LINES = [
+  ("STILL SITTING THERE", "the engine is off. the drive ended. what exactly are you waiting for?"),
+  ("COMFORTABLE?", "you arrived, you switched it off, and now you just sit. riveting stuff."),
+  ("NICE PARKING", "you have been stationary for a while now. honestly, it is the best driving you did all day."),
+  ("THE CAR IS OFF", "you can let go of the wheel. it is over. it has been over for some time."),
+  ("GO ON THEN", "the door is right there. it has been right there this whole time."),
+  ("WORLD'S GREATEST DRIVER", "currently parked. currently achieving nothing. currently being talked at by a screen."),
+  ("POSTURE", "sit up. you are slumped in a switched-off car like it is a sofa."),
+  ("ANY DAY NOW", "the drive finished. you did not. you are still here, doing this."),
+  ("WHAT IS THE PLAN", "because from here it looks like the plan was to sit in a cold car until something happens."),
+  ("BIG DAY, WAS IT", "you drove somewhere and now you need a lie down in the driver's seat. impressive."),
+  ("THE DRIVE IS DONE", "you were only ever the bit in the middle, and even that needed help."),
+  ("STILL HERE", "no engine, no destination, no reason. just you, sitting."),
+]
+
 # How many recent picks to avoid per trigger. With ten lines this stops the obvious A-B-A
 # bounce that excluding only the previous index allowed.
 SISSY_HISTORY = 4
@@ -657,6 +684,21 @@ SISSY_HISTORY = 4
 SISSY_TIERS = ("mild", "harsh", "brutal")
 
 _sissy_recent: dict[str, deque] = {}
+
+
+def first_taunt_line() -> tuple:
+  """First (line_1, line_2) in the taunt pool, for the settings panel's volume test button.
+
+  This exists so the pool's nested shape is known only to the file that defines it. The previous
+  inline version in soundd.py predated the tier refactor and iterated `SISSY_TAUNTS.values()`
+  expecting lists; once those became per-tier dicts it iterated tier *names* and hashed the
+  string "m", so the test button played silence with nothing to indicate why.
+  """
+  for tiers in SISSY_TAUNTS.values():
+    for lines in tiers.values():
+      if lines:
+        return lines[0]
+  return ("", "")
 
 
 def sissy_pick(trigger: str, lines: list) -> int:

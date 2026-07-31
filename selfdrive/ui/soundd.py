@@ -17,7 +17,7 @@ from openpilot.common.swaglog import cloudlog
 from openpilot.system import micd
 from openpilot.system.hardware import HARDWARE
 
-from openpilot.selfdrive.selfdrived.events import SISSY_TAUNTS
+from openpilot.selfdrive.selfdrived.events import first_taunt_line
 
 from openpilot.frogpilot.common.frogpilot_variables import ACTIVE_THEME_PATH, ERROR_LOGS_PATH, RANDOM_EVENTS_PATH, get_frogpilot_toggles
 
@@ -259,8 +259,7 @@ class Soundd:
         alert = getattr(FrogPilotAudibleAlert, name, None)
       if alert is not None:
         if alert == FrogPilotAudibleAlert.sissyTaunt:
-          first = next((l for lines in SISSY_TAUNTS.values() for l in lines), ("", ""))
-          self.taunt_current = self.load_taunt_speech(first[0])
+          self.taunt_current = self.load_taunt_speech(first_taunt_line()[0])
         self.update_alert(alert)
       else:
         cloudlog.warning(f"soundd: ignoring unknown TestAlert {name!r}")
@@ -283,6 +282,16 @@ class Soundd:
         self.taunt_current = self.load_taunt_speech(fpss.alertText1)
 
       self.update_alert(new_alert)
+    elif not sm['deviceState'].started and self.params_memory.get("GoodGirlLine"):
+      # Parked, and frogpilot_process has left a line to say. selfdriveState is not published
+      # offroad at all, which is why this comes via a param rather than an alert message.
+      line_1 = self.params_memory.get("GoodGirlLine")
+      self.params_memory.remove("GoodGirlLine")
+      samples = self.load_taunt_speech(line_1)
+      if samples is not None:
+        self.taunt_current = samples
+        self.good_girl_playing = True
+        self.update_alert(FrogPilotAudibleAlert.sissyTaunt)
     elif check_selfdrive_timeout_alert(sm):
       self.update_alert(AudibleAlert.warningImmediate)
       self.selfdrive_timeout_alert = True
@@ -308,7 +317,7 @@ class Soundd:
     sm = messaging.SubMaster(['selfdriveState', 'soundPressure'])
 
     # FrogPilot variables
-    sm = sm.extend(['frogpilotSelfdriveState', 'frogpilotPlan'])
+    sm = sm.extend(['frogpilotSelfdriveState', 'frogpilotPlan', 'deviceState'])
 
     with self.get_stream(sd) as stream:
       rk = Ratekeeper(20)
@@ -317,7 +326,20 @@ class Soundd:
       while True:
         sm.update(0)
 
-        if sm.updated['soundPressure'] and self.current_alert == AudibleAlert.none: # only update volume filter when not playing alert
+        # A finished parked line has to be released back to none, or update_alert's
+        # "already playing this alert" guard means the *second* line of a session never plays.
+        # Onroad this never bites because alertSound returns to none between taunts.
+        if self.good_girl_playing and (self.taunt_current is None
+                                       or self.current_sound_frame > len(self.taunt_current)):
+          self.good_girl_playing = False
+          self.update_alert(AudibleAlert.none)
+
+        if self.good_girl_playing:
+          # micd is onroad-only, so soundPressure never arrives while parked and the ambient
+          # volume would sit at MIN_VOLUME — inaudible in anything but a silent garage.
+          self.current_volume = self.frogpilot_toggles.good_girl_volume / 100.0
+
+        elif sm.updated['soundPressure'] and self.current_alert == AudibleAlert.none: # only update volume filter when not playing alert
           self.spl_filter_weighted.update(sm["soundPressure"].soundPressureWeightedDb)
           self.current_volume = self.calculate_volume(float(self.spl_filter_weighted.x))
 

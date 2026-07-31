@@ -192,6 +192,9 @@ class HardwareBase(ABC):
     pass
 
   @abstractmethod
+  def set_amplifier_enabled(self, enabled):
+    pass
+
   def set_power_save(self, powersave_enabled):
     pass
 
