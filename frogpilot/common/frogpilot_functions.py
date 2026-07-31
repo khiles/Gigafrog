@@ -201,9 +201,23 @@ def update_maps(now, params, params_memory, manual_update=False):
   msg.mapdIn.str = maps_selected
   pm.send("mapdIn", msg)
 
+  # mapd has to actually answer. If it is not running, or dies mid-download, nothing ever arrives
+  # on mapdExtendedOut and an unbounded wait leaves the UI at 0% with no way to tell what is wrong.
+  # Waiting is only unbounded once the download is confirmed under way.
+  # Wall clock, not an iteration count: sm.update returns early whenever a message arrives, so
+  # counting loops would time out in seconds if mapd is alive but merely idle.
+  MAPD_RESPONSE_TIMEOUT = 60.0
+  deadline = time.monotonic() + MAPD_RESPONSE_TIMEOUT
+
   started = False
   while True:
     sm.update(1000)
+
+    if not started:
+      if time.monotonic() > deadline:
+        print("mapd never reported download progress — is it running? Giving up.")
+        params_memory.remove("DownloadMaps")
+        return
 
     if params_memory.get_bool("CancelDownloadMaps"):
       msg = messaging.new_message("mapdIn")

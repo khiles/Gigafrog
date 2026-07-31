@@ -9,6 +9,10 @@ from openpilot.common.params import Params
 from openpilot.system.hardware import HARDWARE, PC, TICI
 from openpilot.system.manager.process import PythonProcess, NativeProcess, DaemonProcess
 
+# Module level: the gate functions below are polled by the manager loop, so this must not be
+# rebuilt on every call.
+params_memory = Params(memory=True)
+
 WEBCAM = os.getenv("USE_WEBCAM") is not None
 
 def driverview(started: bool, params: Params, CP: car.CarParams, frogpilot_toggles: SimpleNamespace) -> bool:
@@ -80,6 +84,11 @@ def run_mapd(started: bool, params: Params, CP: car.CarParams, frogpilot_toggles
   # mapd binary is incompatible with tizi (C3X) — skip it there to avoid blocking engagement
   if HARDWARE.get_device_type() == "tizi":
     return False
+  # A map download is performed *by* mapd, so requesting one has to start it. Without this the
+  # download request is published to a topic nobody is subscribed to and the progress bar sits at
+  # 0% forever — which is exactly what it did with both speed limit toggles off.
+  if params_memory.get_bool("DownloadMaps"):
+    return True
   return frogpilot_toggles.speed_limit_controller or frogpilot_toggles.speed_limit_filler
 
 def run_speed_limit_filler(started: bool, params: Params, CP: car.CarParams, frogpilot_toggles: SimpleNamespace) -> bool:
