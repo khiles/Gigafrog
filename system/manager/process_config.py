@@ -9,9 +9,11 @@ from openpilot.common.params import Params
 from openpilot.system.hardware import HARDWARE, PC, TICI
 from openpilot.system.manager.process import PythonProcess, NativeProcess, DaemonProcess
 
-# Module level: the gate functions below are polled by the manager loop, so this must not be
-# rebuilt on every call.
+# Module level: the gate functions below are polled by the manager loop, so these must not be
+# rebuilt or re-read on every call. get_device_type reads sysfs on each call by design (the
+# comment there notes lru_cache leaks in classes), which is not something to do at loop rate.
 params_memory = Params(memory=True)
+DEVICE_TYPE = HARDWARE.get_device_type()
 
 WEBCAM = os.getenv("USE_WEBCAM") is not None
 
@@ -81,15 +83,32 @@ def allow_uploads(started: bool, params: Params, CP: car.CarParams, frogpilot_to
   return not frogpilot_toggles.no_uploads or frogpilot_toggles.no_onroad_uploads
 
 def run_mapd(started: bool, params: Params, CP: car.CarParams, frogpilot_toggles: SimpleNamespace) -> bool:
-  # mapd binary is incompatible with tizi (C3X) — skip it there to avoid blocking engagement
-  if HARDWARE.get_device_type() == "tizi":
-    return False
   # A map download is performed *by* mapd, so requesting one has to start it. Without this the
   # download request is published to a topic nobody is subscribed to and the progress bar sits at
   # 0% forever — which is exactly what it did with both speed limit toggles off.
-  if params_memory.get_bool("DownloadMaps"):
-    return True
-  return frogpilot_toggles.speed_limit_controller or frogpilot_toggles.speed_limit_filler
+  wanted = (params_memory.get_bool("DownloadMaps") or
+            frogpilot_toggles.speed_limit_controller or
+            frogpilot_toggles.speed_limit_filler)
+  if not wanted:
+    return False
+
+  # mapd used to be skipped entirely on tizi (C3X), described as the binary being incompatible.
+  # It is not: the binary is a statically linked aarch64 executable and runs fine there. What it
+  # did do was crash, and a process that shouldBeRunning while not running raises
+  # processNotRunning (selfdrive/selfdrived/selfdrived.py:348-354), which blocks engagement.
+  # Disabling it removed that risk at the cost of making map downloads impossible on tizi
+  # forever — the request went to a topic with no subscriber and the progress bar sat at 0%.
+  #
+  # Offroad-only on tizi keeps both properties. Downloads only ever happen parked, so they now
+  # work; and because mapd is never expected to be running while driving, it cannot contribute to
+  # processNotRunning and so cannot block engagement no matter how it behaves.
+  #
+  # Live speed limits from mapd still will not work on tizi. That is not a regression: the
+  # process was never started there at all, so there was nothing to lose.
+  if started and DEVICE_TYPE == "tizi":
+    return False
+
+  return True
 
 def run_speed_limit_filler(started: bool, params: Params, CP: car.CarParams, frogpilot_toggles: SimpleNamespace) -> bool:
   return frogpilot_toggles.speed_limit_filler
