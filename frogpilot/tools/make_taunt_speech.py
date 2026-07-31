@@ -40,6 +40,14 @@ from pathlib import Path
 
 SAMPLE_RATE = 48000
 
+# A different voice per tier, so the escalation is audible and not only textual. None means "use
+# whatever --voice or the system default gives you". macOS: `say -v '?'` lists what you have.
+TIER_VOICES = {
+  "mild": None,
+  "harsh": None,
+  "brutal": None,
+}
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 # Rendering straight into the repo is the point: committed wavs ship with the fork and
 # reach the device on the next update, so nothing has to be copied by hand.
@@ -125,7 +133,9 @@ def main():
   parser = argparse.ArgumentParser()
   parser.add_argument("--out", default=str(ASSET_DIR),
                       help="output directory (defaults to the in-repo asset dir)")
-  parser.add_argument("--voice", default=None, help="voice name (macOS: say -v '?' to list)")
+  parser.add_argument("--voice", default=None,
+                      help="voice for every tier (macOS: say -v '?' to list). Per-tier voices "
+                           "set in TIER_VOICES override this.")
   parser.add_argument("--list", action="store_true", help="print the lines and exit")
   parser.add_argument("--force", action="store_true", help="re-render lines that already exist")
   args = parser.parse_args()
@@ -170,14 +180,18 @@ def main():
         spoken = f"{line_1}. {line_2}"
 
         if out_path.exists() and not args.force:
-          if manifest.get(key) == spoken:
+          expected = f"[{TIER_VOICES.get(tier) or args.voice or 'default'}] {spoken}"
+          if manifest.get(key) == expected:
             skipped += 1
             continue
-          stale_text += 1   # same line 1, different line 2 — the audio no longer matches
+          stale_text += 1   # text or voice changed under an unchanged line 1
 
+        voice = TIER_VOICES.get(tier) or args.voice
         try:
-          render(spoken, out_path, args.voice)
-          manifest[key] = spoken
+          render(spoken, out_path, voice)
+          # Record the voice too: changing a tier's voice must re-render even though the words
+          # are identical, which a text-only manifest would miss.
+          manifest[key] = f"[{voice or 'default'}] {spoken}"
           rendered += 1
           print(f"  {key}  {line_1[:48]}")
         except subprocess.CalledProcessError as exc:

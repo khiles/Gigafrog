@@ -184,6 +184,10 @@ struct FrogPilotOnroadEvent @0xa5cd762cd951a455 {
     sissySpeeding @36;
     sissyDistracted @37;
     sissyPraise @38;
+    sissyHarshAccel @39;
+    sissyPothole @40;
+    sissyBlindSpotChange @41;
+    sissyStopLine @42;
   }
 }
 

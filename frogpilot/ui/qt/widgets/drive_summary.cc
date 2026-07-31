@@ -51,6 +51,10 @@ FrogPilotDriveSummary::FrogPilotDriveSummary(QWidget *parent, bool randomEvents)
     sissyMap.insert("sissyTailgating", tr("Times You Tailgated"));
     sissyMap.insert("sissySpeeding", tr("Times You Sped"));
     sissyMap.insert("sissyDistracted", tr("Times You Stopped Looking"));
+    sissyMap.insert("sissyHarshAccel", tr("Ham-Fisted Getaways"));
+    sissyMap.insert("sissyPothole", tr("Potholes You Hit"));
+    sissyMap.insert("sissyBlindSpotChange", tr("Blind Spot Lane Changes"));
+    sissyMap.insert("sissyStopLine", tr("Stop Lines Overrun"));
   } else {
     listLayout->addWidget(createStatBox(tr("% of Drive With openpilot Engaged"), &engagementValue, this));
     listLayout->addWidget(createStatBox(tr("Drive Distance"), &frogPilotMetersValue, this));

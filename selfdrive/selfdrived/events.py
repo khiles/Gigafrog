@@ -530,6 +530,78 @@ SISSY_TAUNTS = {
       ("IN A HURRY?", "you'll hit the same red light. you always do, you anxious, worthless little whore"),
     ],
   },
+  "harsh_accel": {
+    "mild": [
+      ("EASY", "it's a car, not a catapult"),
+      ("WHO ARE YOU RACING", "nobody. the answer is nobody."),
+      ("THE PEDAL HAS A MIDDLE", "try landing on it occasionally"),
+      ("SETTLE DOWN", "you're not winning anything"),
+    ],
+    "harsh": [
+      ("THAT'S NOT DRIVING", "that's stamping"),
+      ("FUEL DOESN'T GROW ON TREES", "neither does your licence"),
+      ("EVERYONE'S HEAD MOVED", "well done, genuinely"),
+    ],
+    "brutal": [
+      ("WHAT IS WRONG WITH YOU", "it was a green light, not a start line"),
+      ("ABSOLUTE CHILD", "that's all that was. a tantrum with a throttle."),
+      ("PATHETIC", "compensating for something, clearly"),
+    ],
+  },
+  "pothole": {
+    "mild": [
+      ("YOU HIT THAT", "it was right there. in front of you."),
+      ("NICE", "the suspension says thanks"),
+      ("SAW IT TOO LATE?", "you didn't see it at all"),
+      ("OUCH", "that one was avoidable"),
+    ],
+    "harsh": [
+      ("THAT COST MONEY", "and you didn't even flinch"),
+      ("EYES DOWN THE ROAD", "not on the bonnet"),
+      ("THE WHOLE CAR FELT THAT", "including the bits that are expensive"),
+    ],
+    "brutal": [
+      ("YOU AIMED FOR IT", "there is no other explanation"),
+      ("USELESS", "a pothole beat you. a hole. in the ground."),
+      ("STOP DRIVING", "genuinely, for the car's sake, stop"),
+    ],
+  },
+  "blind_spot": {
+    "mild": [
+      ("THERE'S A CAR THERE", "the one you nearly moved into"),
+      ("CHECK YOUR MIRRORS", "the round things. on the sides."),
+      ("THAT WAS OCCUPIED", "the lane. that you tried to enter."),
+      ("MIRROR. SIGNAL. THINK.", "you managed one of three"),
+    ],
+    "harsh": [
+      ("YOU NEARLY HIT THEM", "and you still haven't noticed"),
+      ("THE BLIND SPOT ISN'T BLIND", "you just didn't look"),
+      ("THAT'S HOW PEOPLE DIE", "not an exaggeration"),
+    ],
+    "brutal": [
+      ("ARE YOU TRYING TO CRASH", "because that's what that was"),
+      ("DANGEROUS AND STUPID", "a rare combination of both at once"),
+      ("HAND YOUR LICENCE BACK", "you have proven you should not have one"),
+    ],
+  },
+  "stop_line": {
+    "mild": [
+      ("THAT WAS A STOP LINE", "the white one. across the road."),
+      ("BIT LATE", "the line was where you stop"),
+      ("STOP MEANS STOP", "not slow down and hope"),
+      ("YOU OVERSHOT", "everyone saw"),
+    ],
+    "harsh": [
+      ("THAT'S A RED LIGHT", "they are not decorative"),
+      ("YOU RAN IT", "own it. everyone at the junction saw."),
+      ("EMBARRASSING JUNCTION WORK", "genuinely poor"),
+    ],
+    "brutal": [
+      ("THAT WAS A CROSSING", "with people on it, potentially"),
+      ("YOU DIDN'T EVEN SLOW", "not once. not slightly."),
+      ("THAT'S A COURT DATE", "if anyone had been in front of you"),
+    ],
+  },
   "distracted": {
     "mild": [
       ("EYES ON THE ROAD YOU UNBELIEVABLE IDIOT", "you unbelievable idiot, put the phone down before I make you choke on it while the bollard permanently rearranges your stupid face"),
@@ -1450,6 +1522,22 @@ FROGPILOT_EVENTS: dict[int, dict[str, Alert | AlertCallbackType]] = {
 
   FrogPilotEventName.sissyPraise: {
     ET.PERMANENT: sissy_taunt_alert("praise", FrogPilotAudibleAlert.sissyTaunt),
+  },
+
+  FrogPilotEventName.sissyHarshAccel: {
+    ET.PERMANENT: sissy_taunt_alert("harsh_accel", FrogPilotAudibleAlert.sissyTaunt),
+  },
+
+  FrogPilotEventName.sissyPothole: {
+    ET.PERMANENT: sissy_taunt_alert("pothole", FrogPilotAudibleAlert.sissyTaunt),
+  },
+
+  FrogPilotEventName.sissyBlindSpotChange: {
+    ET.PERMANENT: sissy_taunt_alert("blind_spot", FrogPilotAudibleAlert.sissyTaunt),
+  },
+
+  FrogPilotEventName.sissyStopLine: {
+    ET.PERMANENT: sissy_taunt_alert("stop_line", FrogPilotAudibleAlert.sissyTaunt),
   },
 
   FrogPilotEventName.speedLimitChanged: {

@@ -210,7 +210,8 @@ def test_tailgating_scales_with_the_drivers_own_gap():
 
 
 SISSY_EVENT_NAMES = ["sissyLaneHugging", "sissyHardBraking", "sissyCornering",
-                     "sissyTailgating", "sissySpeeding", "sissyDistracted", "sissyPraise"]
+                     "sissyTailgating", "sissySpeeding", "sissyDistracted", "sissyPraise",
+                     "sissyHarshAccel", "sissyPothole", "sissyBlindSpotChange", "sissyStopLine"]
 
 
 @pytest.mark.parametrize("event", ["speedLimitExceeded", "tailgating"] + SISSY_EVENT_NAMES)
@@ -233,7 +234,8 @@ def test_sissy_taunts_can_never_affect_driving(event):
 
 
 @pytest.mark.parametrize("trigger", ["lane_hugging", "hard_braking", "cornering",
-                                     "tailgating", "speeding", "distracted"])
+                                     "tailgating", "speeding", "distracted",
+                                     "harsh_accel", "pothole", "blind_spot", "stop_line"])
 def test_every_taunt_trigger_has_all_tiers(trigger):
   """Escalation picks a tier by name, so a missing or empty tier would silently fall back and
   that trigger would never reach its worst lines."""
@@ -256,6 +258,13 @@ def test_tier_escalates_with_offences():
   seen = [sissy_tier_for(n) for n in range(200)]
   assert seen == sorted(seen)
   assert max(seen) == len(SISSY_TIER_THRESHOLDS)
+
+
+def test_every_offence_event_has_a_pool():
+  """SISSY_EVENTS drives selection; a trigger with no pool would fire and render an empty alert."""
+  from openpilot.frogpilot.controls.lib.frogpilot_events import SISSY_EVENTS
+  from openpilot.selfdrive.selfdrived.events import SISSY_TAUNTS
+  assert set(SISSY_EVENTS) == set(SISSY_TAUNTS)
 
 
 def test_every_line_is_unique_across_tiers():

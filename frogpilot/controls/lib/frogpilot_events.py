@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import random
 
+from cereal import log
+
 from openpilot.common.constants import ACCELERATION_DUE_TO_GRAVITY, CV
 from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.controls.lib.desire_helper import TurnDirection
@@ -46,6 +48,12 @@ SISSY_CORNERING_ACCEL = 3.2      # m/s^2
 # screen, and a joke must never sit on top of it or delay it.
 SISSY_DM_MIN_AWARENESS = 0.7
 
+SISSY_ACCEL = 2.2                # m/s^2, pulling away hard
+SISSY_ROUGHNESS = 3.0            # m/s^2 RMS vertical — a pothole, not a coarse surface
+# A lane change begun while that side is occupied. The stock blind spot warning already fires;
+# this only adds commentary afterwards and must never race it, hence the alerts_empty gate above.
+SISSY_STOP_LINE_OVERSHOOT = -1.0  # m past the line before it counts as having run it
+
 SISSY_EVENTS = {
   "lane_hugging": FrogPilotEventName.sissyLaneHugging,
   "hard_braking": FrogPilotEventName.sissyHardBraking,
@@ -53,6 +61,10 @@ SISSY_EVENTS = {
   "tailgating": FrogPilotEventName.sissyTailgating,
   "speeding": FrogPilotEventName.sissySpeeding,
   "distracted": FrogPilotEventName.sissyDistracted,
+  "harsh_accel": FrogPilotEventName.sissyHarshAccel,
+  "pothole": FrogPilotEventName.sissyPothole,
+  "blind_spot": FrogPilotEventName.sissyBlindSpotChange,
+  "stop_line": FrogPilotEventName.sissyStopLine,
 }
 
 # Explicit set, not an ordinal range. A range would silently capture any enumerant appended
@@ -133,6 +145,7 @@ class FrogPilotEvents:
     self.sissy_total = 0
     self.sissy_tier = 0
     self.sissy_clean_t = 0.0
+    self.sissy_lane_change_prev = False
     # Seeded past the repeat like the taunt cooldowns above, so the first compliment waits
     # only on the clean-time rather than on a full repeat period as well
     self.sissy_since_praise = SISSY_PRAISE_REPEAT
@@ -150,6 +163,13 @@ class FrogPilotEvents:
     self.sissy_since_praise += DT_MDL
     for trigger in self.sissy_since_trigger:
       self.sissy_since_trigger[trigger] += DT_MDL
+
+    # Edge-detected before any of the gates below. If this only tracked past them, a lane change
+    # begun while a real alert was on screen would look like a fresh one the moment that alert
+    # cleared, and fire for a manoeuvre already well underway.
+    lane_change = sm["modelV2"].meta.laneChangeState != log.LaneChangeState.off
+    lane_change_started = lane_change and not self.sissy_lane_change_prev
+    self.sissy_lane_change_prev = lane_change
 
     if not frogpilot_toggles.sissy_mode:
       self.sissy_lane_t = 0.0
@@ -192,6 +212,33 @@ class FrogPilotEvents:
     dm = sm["driverMonitoringState"]
     if dm.isActiveMode and dm.isDistracted and dm.awarenessStatus > SISSY_DM_MIN_AWARENESS:
       candidates.append("distracted")
+
+    if car_state.aEgo >= SISSY_ACCEL * thresh_scale:
+      candidates.append("harsh_accel")
+
+    # A pothole is a spike in vertical acceleration, not a rough surface — road_roughness is RMS
+    # about its own slow mean (frogpilot_pose.py), so a consistently coarse road does not register.
+    if planner.frogpilot_pose.road_roughness >= SISSY_ROUGHNESS * thresh_scale:
+      candidates.append("pothole")
+
+    # Starting a lane change with that side occupied. Only on the rising edge of the manoeuvre:
+    # once committed, a car alongside is normal and would otherwise fire every frame.
+    direction = sm["modelV2"].meta.laneChangeDirection
+    occupied = (car_state.leftBlindspot if direction == log.LaneChangeDirection.left
+                else car_state.rightBlindspot if direction == log.LaneChangeDirection.right
+                else False)
+    if lane_change_started and occupied:
+      candidates.append("blind_spot")
+
+    # Tesla's own map stop lines. Gated on roadSignValid, so a car that does not send
+    # UI_driverAssistRoadSign never fires this rather than firing on a confident zero.
+    fp_car_state = sm["frogpilotCarState"]
+    if fp_car_state.roadSignValid:
+      for distance in (fp_car_state.stopSignDistance, fp_car_state.trafficLightDistance):
+        # -1 means "not seen yet"; only a genuinely negative distance means it is behind you
+        if SISSY_STOP_LINE_OVERSHOOT > distance > -50.0 and car_state.vEgo > SISSY_MIN_SPEED:
+          candidates.append("stop_line")
+          break
 
     # A clean stretch is one with nothing to complain about at all, not merely a quiet cooldown,
     # so any live offence resets it even when the taunt itself is rate limited.
