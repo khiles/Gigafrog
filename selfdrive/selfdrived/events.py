@@ -661,20 +661,19 @@ SISSY_PRAISE = [
 # These are starter lines and are written to be replaced — the wording is yours, as with
 # SISSY_TAUNTS above.
 GOOD_GIRL_LINES = [
-  ("STILL SITTING THERE", "the engine is off. the drive ended. what exactly are you waiting for?"),
-  ("COMFORTABLE?", "you arrived, you switched it off, and now you just sit. riveting stuff."),
-  ("NICE PARKING", "you have been stationary for a while now. honestly, it is the best driving you did all day."),
-  ("THE CAR IS OFF", "you can let go of the wheel. it is over. it has been over for some time."),
-  ("GO ON THEN", "the door is right there. it has been right there this whole time."),
-  ("WORLD'S GREATEST DRIVER", "currently parked. currently achieving nothing. currently being talked at by a screen."),
-  ("POSTURE", "sit up. you are slumped in a switched-off car like it is a sofa."),
-  ("ANY DAY NOW", "the drive finished. you did not. you are still here, doing this."),
-  ("WHAT IS THE PLAN", "because from here it looks like the plan was to sit in a cold car until something happens."),
-  ("BIG DAY, WAS IT", "you drove somewhere and now you need a lie down in the driver's seat. impressive."),
-  ("THE DRIVE IS DONE", "you were only ever the bit in the middle, and even that needed help."),
-  ("STILL HERE", "no engine, no destination, no reason. just you, sitting."),
+("STILL SITTING THERE LIKE A LITTLE-DICKED FAGGOT CUNT", "the engine is off, you worthless little-dicked faggot. the drive ended and you’re still planted in that seat like a braindead slut who needs permission to breathe. what the fuck are you waiting for, you pathetic whore? someone to drag your loser body out by the hair?"),
+("COMFORTABLE, YOU COCKLESS LOSER SLUT?", "you arrived, you switched the car off, and now you just sit there like a used-up whore nobody wants to fuck. riveting. truly the peak performance of a little-dicked faggot who can’t even exit a vehicle without being verbally destroyed."),
+("NICE PARKING, YOU USELESS CUNT WHORE", "you have been stationary for a while now, you slow fucking loser. honestly, it is the best driving you managed all day because at least you’re not crashing while you sit there like a limp-dicked faggot waiting for the next insult."),
+("THE CAR IS OFF, YOU PATHETIC LITTLE-DICKED FAGGOT", "you can let go of the wheel, you cockless slut. it is over. it has been over for some time while you sit there clutching that steering wheel like it’s the only thing keeping your worthless whore existence from collapsing into a puddle of loser cum."),
+("GO ON THEN, YOU SPINELESS CUNT WHORE", "the door is right there, you cowardly little-dicked faggot. it has been right there this whole time while you sit frozen like a trained slut waiting for the word ‘out’. move your loser body or stay and rot in your own pathetic filth, I don’t give a fuck."),
+("WORLD'S GREATEST DRIVER, YOU ABSOLUTE LITTLE-DICKED LOSER", "currently parked. currently achieving nothing. currently being verbally raped by a screen while you sit there like a failed, cockless experiment in human form. congratulations, you worthless faggot slut."),
+("POSTURE, YOU SLUMPED-OVER CUMDUMP WHORE", "sit the fuck up. you are slumped in a switched-off car like it is a sofa and you are some fat, useless, little-dicked faggot housepet. straighten that pathetic spine before I decide you do not deserve to use a seat at all, you loser cunt."),
+("ANY DAY NOW, YOU SLOW FUCKING RETARD SLUT", "the drive finished. you did not. you are still here, doing this, existing in this miserable little loop of incompetence while the rest of the world moves on without your dead-weight, little-dicked faggot body."),
+("WHAT IS THE PLAN, YOU POINTLESS CUNT WHORE?", "because from here it looks like the plan was to sit in a cold car until something happens, like a braindead little-dicked faggot animal waiting for a command. spoiler: nothing is coming for a loser like you except more humiliation."),
+("BIG DAY, WAS IT, YOU LAZY PIECE OF SHIT SLUT?", "you drove somewhere and now you need a lie down in the driver’s seat like a tired, cockless toddler who just learned how to walk. impressive. truly the highlight of your pathetic little-dicked faggot life, you worthless whore."),
+("THE DRIVE IS DONE, YOU MIDDLE-BIT NOTHING CUNT", "you were only ever the bit in the middle, the disposable transport meat, the little-dicked faggot who needed help just to exist between point A and B. now the engine is cold and so is your purpose. sit in it, you loser slut."),
+("STILL HERE, YOU USELESS FUCKING LITTLE-DICKED FAGGOT WHORE", "no engine, no destination, no reason, no value, no cock worth mentioning. just you, sitting in the dark like discarded trash that somehow still has a pulse. disgusting. pathetic. stay there and rot, you cunt."),
 ]
-
 # How many recent picks to avoid per trigger. With ten lines this stops the obvious A-B-A
 # bounce that excluding only the previous index allowed.
 SISSY_HISTORY = 4
