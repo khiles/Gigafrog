@@ -39,6 +39,10 @@ from pathlib import Path
 DEVICE_HOST = os.environ.get("FROGPILOT_DEVICE", "192.168.1.11")
 DEVICE_USER = "comma"
 DEVICE_REPO = "/data/openpilot"
+# Running ON the device is the normal case for this tool; --device is only for driving it from
+# another machine. Detecting that here means --device on the car degrades to "just run it" rather
+# than trying to SSH to itself, which fails with a message about waking the car you are sitting in.
+ON_DEVICE = os.path.isfile("/AGNOS")
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
@@ -149,6 +153,10 @@ def main():
   parser.add_argument("--device-host", default=DEVICE_HOST,
                       help=f"address for --device (default {DEVICE_HOST})")
   args = parser.parse_args()
+
+  if args.device and ON_DEVICE:
+    print("Already running on the device — ignoring --device and reading the logs directly.\n")
+    args.device = False
 
   if args.device:
     passthrough = [a for a in sys.argv[1:] if a not in ("--device",)
