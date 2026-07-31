@@ -54,10 +54,10 @@ TAUNT_CACHE_SIZE = 4
 def taunt_speech_key(line_1: str) -> str:
   """Hash of line 1 only. Must match make_taunt_speech.py or nothing plays.
 
-  Line 2 is deliberately excluded: it carries live values like the running offence count, so
-  hashing it would change the key on every firing and the line would silently have no audio.
-  Only line 1 is rendered, which also keeps the spoken clip short enough to finish before the
-  4s alert clears — the full two-line renders averaged 8.7s and ran on well past the text.
+  Line 2 is deliberately excluded from the KEY: it carries live values like the running offence
+  count, so hashing it would change the key on every firing and the line would silently have no
+  audio. Both lines are still spoken — the key is only the filename and does not have to describe
+  the whole clip. make_taunt_speech.py keeps a manifest so a line-2 edit still re-renders.
   """
   return hashlib.sha1(line_1.encode()).hexdigest()[:16]
 

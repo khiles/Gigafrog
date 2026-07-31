@@ -5,10 +5,19 @@
     python frogpilot/tools/make_taunt_speech.py                 # render into the repo asset dir
     python frogpilot/tools/make_taunt_speech.py --voice Daniel  # pick a macOS voice
     python frogpilot/tools/make_taunt_speech.py --out /tmp/x    # somewhere else
+    python frogpilot/tools/make_taunt_speech.py --deploy         # render, then copy to the device
 
-By default it renders into frogpilot/assets/taunt_speech/ — commit those and they ship with the
-fork, so the device has them after its next update with nothing to copy. Use --out to render
-somewhere else, then scp that to /data/media/taunt_speech/ on the device, which takes priority.
+Where the audio lives. soundd looks in /data/media/taunt_speech/ first and the in-repo asset dir
+second, so there are two ways to get it onto the car:
+
+  --deploy   copies straight to /data/media/taunt_speech/ over SSH. Preferred. The wavs are large
+             binaries, so committing every re-render grows the git history by ~75M a time and it
+             never shrinks. The device keeps them across updates because /data/media is not
+             touched by the updater.
+  committed  the in-repo asset dir ships with the fork and needs no network, but pays that cost.
+
+--deploy needs the device powered on and reachable, which for a comma device means the car is
+awake. It verifies what actually landed rather than trusting the copy.
 
 Why this runs here and not on the car: the device has no speech synthesiser, and installing one
 onto AGNOS is fragile across updates. Rendering on a machine that already has a good one is both
@@ -47,6 +56,13 @@ TIER_VOICES = {
   "harsh": None,
   "brutal": None,
 }
+
+# The car. Override with --device or FROGPILOT_DEVICE.
+DEVICE_HOST = os.environ.get("FROGPILOT_DEVICE", "192.168.1.11")
+DEVICE_USER = "comma"
+# /data/media survives updates and is what soundd checks first, so a deploy here outranks
+# whatever shipped in the repo.
+DEVICE_DIR = "/data/media/taunt_speech"
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 # Rendering straight into the repo is the point: committed wavs ship with the fork and
@@ -129,6 +145,79 @@ def pick_renderer():
   )
 
 
+def ssh_base(host):
+  return ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+          "-o", "ConnectTimeout=8", f"{DEVICE_USER}@{host}"]
+
+
+def deploy(out_dir, host):
+  """Copy the rendered audio to the device and verify what actually landed.
+
+  Returns True on success. Everything here is deliberately loud about failure: a deploy that
+  silently half-worked leaves some lines silent in the car, which is indistinguishable from a
+  line simply not having been rendered."""
+  wavs = sorted(out_dir.glob("*.wav"))
+  if not wavs:
+    print(f"Nothing to deploy — no wavs in {out_dir}")
+    return False
+
+  total_mb = sum(p.stat().st_size for p in wavs) / 1e6
+  print(f"\nDeploying {len(wavs)} file(s), {total_mb:.0f}MB to {DEVICE_USER}@{host}:{DEVICE_DIR}/")
+
+  probe = subprocess.run(ssh_base(host) + ["echo ok"], capture_output=True, text=True)
+  if probe.returncode != 0:
+    err = (probe.stderr or "").strip().splitlines()
+    print(f"  Cannot reach {host}: {err[-1] if err else 'unknown error'}")
+    print("  A comma device is only on the network while the car is awake. Wake the car and retry.")
+    return False
+
+  subprocess.run(ssh_base(host) + [f"mkdir -p {DEVICE_DIR}"], check=True)
+
+  # rsync only sends what changed, which matters because re-rendering one line should not push
+  # 75MB. It is not guaranteed to be on AGNOS, so fall back to tar over ssh, which needs nothing
+  # that is not already there.
+  if have("rsync") and subprocess.run(ssh_base(host) + ["command -v rsync"],
+                                      capture_output=True).returncode == 0:
+    cmd = ["rsync", "-az", "--delete", "--info=stats1",
+           "-e", "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=8",
+           f"{out_dir}/", f"{DEVICE_USER}@{host}:{DEVICE_DIR}/"]
+    result = subprocess.run(cmd)
+  else:
+    print("  (rsync unavailable on one end, falling back to tar over ssh)")
+    tar = subprocess.Popen(["tar", "cz", "-C", str(out_dir)] + [p.name for p in wavs]
+                           + (["manifest.json"] if (out_dir / "manifest.json").exists() else []),
+                           stdout=subprocess.PIPE)
+    result = subprocess.run(ssh_base(host) + [f"tar xz -C {DEVICE_DIR}"], stdin=tar.stdout)
+    tar.stdout.close()
+    tar.wait()
+
+  if result.returncode != 0:
+    print(f"  Copy failed (exit {result.returncode}).")
+    return False
+
+  # Verify by size rather than by name. A truncated or zero-length wav is the failure that would
+  # otherwise reach the car looking fine and simply play nothing.
+  listing = subprocess.run(ssh_base(host) + [f"cd {DEVICE_DIR} && wc -c *.wav 2>/dev/null"],
+                           capture_output=True, text=True)
+  remote = {}
+  for line in listing.stdout.splitlines():
+    parts = line.split(None, 1)
+    if len(parts) == 2 and parts[1].strip() != "total":
+      remote[parts[1].strip()] = int(parts[0])
+
+  missing = [p.name for p in wavs if p.name not in remote]
+  wrong = [p.name for p in wavs if p.name in remote and remote[p.name] != p.stat().st_size]
+  if missing or wrong:
+    print(f"  Verification FAILED: {len(missing)} missing, {len(wrong)} wrong size")
+    for n in (missing + wrong)[:10]:
+      print(f"    {n}")
+    return False
+
+  print(f"  Verified {len(wavs)} file(s) on the device, all matching size.")
+  print("  soundd reads /data/media first, so these take effect on the next drive.")
+  return True
+
+
 def main():
   parser = argparse.ArgumentParser()
   parser.add_argument("--out", default=str(ASSET_DIR),
@@ -138,6 +227,10 @@ def main():
                            "set in TIER_VOICES override this.")
   parser.add_argument("--list", action="store_true", help="print the lines and exit")
   parser.add_argument("--force", action="store_true", help="re-render lines that already exist")
+  parser.add_argument("--deploy", action="store_true",
+                      help=f"copy the result to the device at {DEVICE_HOST} over SSH")
+  parser.add_argument("--device", default=DEVICE_HOST,
+                      help=f"device address for --deploy (default {DEVICE_HOST})")
   args = parser.parse_args()
 
   taunts = load_taunts()
@@ -209,13 +302,18 @@ def main():
     print(f"{len(stale)} stale file(s) from edited or removed lines:")
     for p in stale:
       print(f"  {p.name}")
-    print("Safe to delete — nothing references them.")
+    print("Safe to delete — nothing references them. --deploy removes them from the device too.")
 
+  if args.deploy:
+    if not deploy(out_dir, args.device):
+      raise SystemExit(1)
+    return
+
+  print(f"\nGet it onto the car with:\n  {sys.argv[0]} --deploy")
   if out_dir.resolve() == ASSET_DIR.resolve():
-    print("\nRendered into the repo. Commit them and they ship to the device on the next update:")
+    print("Or commit it, which needs no network but grows the git history by the full size of "
+          "the audio\nevery re-render:")
     print(f"  git add {ASSET_DIR.relative_to(REPO_ROOT)} && git commit -m 'taunt speech' && git push")
-  else:
-    print(f"\nCopy to the device:\n  scp -r {out_dir}/ comma@<device>:/data/media/")
 
 
 if __name__ == "__main__":
