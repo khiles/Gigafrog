@@ -101,21 +101,39 @@ def read_proclogs(segment_dirs):
 
 
 def run_on_device(host, passthrough):
-  """Run this same script on the car and stream its output back.
+  """Copy this script to the car, run it there, and stream its output back.
 
-  The script is already on the device — it ships with the fork — so this only has to invoke it
-  with the right working directory for the openpilot imports to resolve."""
-  remote = " ".join(["cd", DEVICE_REPO, "&&", "python3", "frogpilot/tools/memory_report.py"]
-                    + [f"'{a}'" for a in passthrough])
-  cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
-         "-o", "ConnectTimeout=8", f"{DEVICE_USER}@{host}", remote]
+  It copies rather than invoking the device's own copy so the version on the car does not have
+  to match this one. Otherwise a flag added here fails on a device that has not updated yet,
+  with a remote argparse error that looks nothing like the real cause.
+
+  The destination is inside the repo's own tools directory because the script locates openpilot
+  relative to its own path; running it from /tmp would put the imports out of reach."""
+  ssh_opts = ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+              "-o", "ConnectTimeout=8"]
+  target = f"{DEVICE_REPO}/frogpilot/tools/_memory_report_remote.py"
 
   print(f"Running on {DEVICE_USER}@{host} ...\n")
-  result = subprocess.run(cmd)
-  if result.returncode == 255:
-    print(f"\nCannot reach {host}. A comma device is only on the network while the car is")
-    print("awake — wake the car and retry. Override the address with --device-host.")
-  return result.returncode
+
+  copy = subprocess.run(["scp"] + ssh_opts + [str(Path(__file__).resolve()),
+                                              f"{DEVICE_USER}@{host}:{target}"],
+                        capture_output=True, text=True)
+  if copy.returncode != 0:
+    err = (copy.stderr or "").strip().splitlines()
+    print(f"Cannot reach {host}: {err[-1] if err else 'unknown error'}")
+    print("A comma device is only on the network while the car is awake — wake the car and")
+    print("retry. Override the address with --device-host.")
+    return 1
+
+  remote = " ".join(["cd", DEVICE_REPO, "&&", "python3", target] + [f"'{a}'" for a in passthrough])
+  try:
+    result = subprocess.run(["ssh"] + ssh_opts + [f"{DEVICE_USER}@{host}", remote])
+    return result.returncode
+  finally:
+    # Leaving a stray script inside the repo would show up as a dirty working tree on the
+    # device and can make the updater refuse to fast-forward.
+    subprocess.run(["ssh"] + ssh_opts + [f"{DEVICE_USER}@{host}", f"rm -f {target}"],
+                   capture_output=True)
 
 
 def main():
