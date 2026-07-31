@@ -659,6 +659,21 @@ SISSY_TIERS = ("mild", "harsh", "brutal")
 _sissy_recent: dict[str, deque] = {}
 
 
+def first_taunt_line() -> tuple:
+  """First (line_1, line_2) in the taunt pool, for the settings panel's volume test button.
+
+  This exists so the pool's nested shape is known only to the file that defines it. The previous
+  inline version in soundd.py predated the tier refactor and iterated `SISSY_TAUNTS.values()`
+  expecting lists; once those became per-tier dicts it iterated tier *names* and hashed the
+  string "m", so the test button played silence with nothing to indicate why.
+  """
+  for tiers in SISSY_TAUNTS.values():
+    for lines in tiers.values():
+      if lines:
+        return lines[0]
+  return ("", "")
+
+
 def sissy_pick(trigger: str, lines: list) -> int:
   """Random index, avoiding the last few used for this trigger."""
   history = _sissy_recent.setdefault(trigger, deque(maxlen=SISSY_HISTORY))

@@ -623,6 +623,15 @@ FrogPilotThemesPanel::FrogPilotThemesPanel(FrogPilotSettingsWindow *parent, bool
       });
       themeToggle = startupAlertButton;
 
+    } else if (param == "SissyModeCruelty") {
+      // Was falling through to the plain ParamControl below, which renders an on/off switch and
+      // writes "0"/"1" — so 2, 4 and 5 were unreachable and the dial did nothing. The toggle
+      // description has always promised a 1-5 range the UI could not actually set.
+      std::map<float, QString> crueltyLabels{{1, tr("1 - Occasional")}, {2, tr("2 - Regular")},
+                                             {3, tr("3 - Frequent")}, {4, tr("4 - Harsh")},
+                                             {5, tr("5 - Relentless")}};
+      themeToggle = new FrogPilotParamValueControl(param, title, desc, icon, 1, 5, QString(), crueltyLabels);
+
     } else {
       themeToggle = new ParamControl(param, title, desc, icon);
     }
@@ -657,6 +666,7 @@ FrogPilotThemesPanel::FrogPilotThemesPanel(FrogPilotSettingsWindow *parent, bool
   openDescriptions(forceOpenDescriptions, toggles);
 
   QObject::connect(static_cast<ToggleControl *>(toggles["CustomThemes"]), &ToggleControl::toggleFlipped, this, &FrogPilotThemesPanel::updateToggles);
+  QObject::connect(static_cast<ToggleControl *>(toggles["SissyMode"]), &ToggleControl::toggleFlipped, this, &FrogPilotThemesPanel::updateToggles);
   QObject::connect(static_cast<ToggleControl*>(toggles["RandomThemes"]), &ToggleControl::toggleFlipped, [this](bool state) {
     if (state) {
       ConfirmationDialog::alert(tr("\"Random Themes\" only works with downloaded themes, so make sure you download the themes you want it to use!"), this);
@@ -848,6 +858,10 @@ void FrogPilotThemesPanel::updateToggles() {
     }
 
     bool setVisible = parent->tuningLevel >= parent->frogpilotToggleLevels[key].toDouble();
+
+    if (key == "SissyModeCruelty") {
+      setVisible &= params.getBool("SissyMode");
+    }
 
     if (key == "DistanceIconPack") {
       setVisible &= params.getBool("QOLVisuals") && params.getBool("OnroadDistanceButton");

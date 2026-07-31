@@ -17,7 +17,7 @@ from openpilot.common.swaglog import cloudlog
 from openpilot.system import micd
 from openpilot.system.hardware import HARDWARE
 
-from openpilot.selfdrive.selfdrived.events import SISSY_TAUNTS
+from openpilot.selfdrive.selfdrived.events import first_taunt_line
 
 from openpilot.frogpilot.common.frogpilot_variables import ACTIVE_THEME_PATH, ERROR_LOGS_PATH, RANDOM_EVENTS_PATH, get_frogpilot_toggles
 
@@ -259,8 +259,7 @@ class Soundd:
         alert = getattr(FrogPilotAudibleAlert, name, None)
       if alert is not None:
         if alert == FrogPilotAudibleAlert.sissyTaunt:
-          first = next((l for lines in SISSY_TAUNTS.values() for l in lines), ("", ""))
-          self.taunt_current = self.load_taunt_speech(first[0])
+          self.taunt_current = self.load_taunt_speech(first_taunt_line()[0])
         self.update_alert(alert)
       else:
         cloudlog.warning(f"soundd: ignoring unknown TestAlert {name!r}")
