@@ -1,14 +1,29 @@
 Import('env', 'envCython', 'arch')
 
 common_libs = [
-  'params.cc',
   'swaglog.cc',
   'util.cc',
   'watchdog.cc',
   'ratekeeper.cc'
 ]
 
-_common = env.Library('common', common_libs, LIBS="json11")
+# params.cc is built at -O1 rather than -O2, on its own, because it is the single most
+# memory-hungry translation unit in the build and the device has to compile it on boot.
+#
+# params_keys.h is a ~500 entry std::unordered_map brace initializer, which GCC turns into one
+# enormous static initialiser. Measured peak compiler RSS for that header alone: 230MB at -O2,
+# 169MB at -O1 — 61MB back for a file that is settings file I/O and has no hot path, so the
+# optimisation level cannot matter to how it runs.
+#
+# This is not theoretical. Adding six params to that table was enough to take a device from
+# building to being OOM-killed on this exact file, every boot, surviving a full reinstall — it
+# was sitting within about 1.4MB of the limit. common/ builds early and params.cc is the first
+# substantial C++ file in it, so a device short of memory dies here first regardless of content.
+env_params = env.Clone()
+env_params['CCFLAGS'] = [f for f in env_params['CCFLAGS'] if f != '-O2'] + ['-O1']
+_params_obj = env_params.Object('params_lowmem', 'params.cc')
+
+_common = env.Library('common', common_libs + [_params_obj], LIBS="json11")
 
 files = [
   'clutil.cc',
