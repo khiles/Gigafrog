@@ -5,8 +5,16 @@
     python frogpilot/tools/memory_report.py --list          # show available drives
     python frogpilot/tools/memory_report.py --route 2026-07-30--18-22-11
     python frogpilot/tools/memory_report.py --top 30
+    python frogpilot/tools/memory_report.py --device        # run it on the car from here
+    python frogpilot/tools/memory_report.py --device --longest   # pick the longest drive
 
-Run it on the device (or anywhere the route directory is reachable).
+Run it on the device, or from a machine on the same network with --device, which runs it over
+SSH on the car and prints the report here. The logs never leave the device either way — only
+the few lines of report come back, which matters because a route is gigabytes of video.
+
+--longest picks the longest recorded drive rather than the most recent. For a leak that takes
+about an hour to bite, the most recent drive is often a short one that never reached the
+failure; the longest is the one that has the evidence in it.
 
 Why this exists: openpilot's own proclogd already samples every process's RSS and the system
 memory totals, and procLog is logged at one sample every 30s (cereal/services.py). So the drive
@@ -21,9 +29,16 @@ from __future__ import annotations
 # Annotations stay lazy so this also runs on older Pythons than the device ships
 
 import argparse
+import os
+import subprocess
 import sys
 
 from pathlib import Path
+
+# Same device defaults as make_taunt_speech.py
+DEVICE_HOST = os.environ.get("FROGPILOT_DEVICE", "192.168.1.11")
+DEVICE_USER = "comma"
+DEVICE_REPO = "/data/openpilot"
 
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 
@@ -37,7 +52,7 @@ def route_root() -> Path:
   raise SystemExit("No route directory found. Pass --root if your logs live elsewhere.")
 
 
-def segments_for(root: Path, route: str | None):
+def segments_for(root: Path, route: str | None, longest: bool = False):
   """Segment directories for one route, in order. A route is <name>--<segment number>."""
   segs = sorted(p for p in root.iterdir() if p.is_dir() and "--" in p.name)
   if not segs:
@@ -48,7 +63,8 @@ def segments_for(root: Path, route: str | None):
     routes.setdefault(p.name.rsplit("--", 1)[0], []).append(p)
 
   if route is None:
-    route = sorted(routes)[-1]
+    # Segments are about a minute each, so segment count is a good proxy for drive length.
+    route = max(routes, key=lambda r: len(routes[r])) if longest else sorted(routes)[-1]
   if route not in routes:
     raise SystemExit(f"Route {route!r} not found. Try --list.")
   return route, sorted(routes[route], key=lambda p: int(p.name.rsplit("--", 1)[1]))
@@ -84,13 +100,47 @@ def read_proclogs(segment_dirs):
       yield msg.logMonoTime / 1e9, procs, used
 
 
+def run_on_device(host, passthrough):
+  """Run this same script on the car and stream its output back.
+
+  The script is already on the device — it ships with the fork — so this only has to invoke it
+  with the right working directory for the openpilot imports to resolve."""
+  remote = " ".join(["cd", DEVICE_REPO, "&&", "python3", "frogpilot/tools/memory_report.py"]
+                    + [f"'{a}'" for a in passthrough])
+  cmd = ["ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=accept-new",
+         "-o", "ConnectTimeout=8", f"{DEVICE_USER}@{host}", remote]
+
+  print(f"Running on {DEVICE_USER}@{host} ...\n")
+  result = subprocess.run(cmd)
+  if result.returncode == 255:
+    print(f"\nCannot reach {host}. A comma device is only on the network while the car is")
+    print("awake — wake the car and retry. Override the address with --device-host.")
+  return result.returncode
+
+
 def main():
   parser = argparse.ArgumentParser()
   parser.add_argument("--root", default=None, help="route directory (default: the device's)")
   parser.add_argument("--route", default=None, help="route name (default: most recent)")
   parser.add_argument("--list", action="store_true", help="list available routes and exit")
   parser.add_argument("--top", type=int, default=15, help="how many processes to show")
+  parser.add_argument("--longest", action="store_true",
+                      help="analyse the longest recorded drive rather than the most recent")
+  parser.add_argument("--device", action="store_true",
+                      help=f"run this on the car at {DEVICE_HOST} over SSH and print the result here")
+  parser.add_argument("--device-host", default=DEVICE_HOST,
+                      help=f"address for --device (default {DEVICE_HOST})")
   args = parser.parse_args()
+
+  if args.device:
+    passthrough = [a for a in sys.argv[1:] if a not in ("--device",)
+                   and not a.startswith("--device-host")]
+    # strip the value of --device-host if it was given separately
+    if "--device-host" in sys.argv:
+      i = sys.argv.index("--device-host")
+      drop = sys.argv[i + 1] if i + 1 < len(sys.argv) else None
+      passthrough = [a for a in passthrough if a != drop]
+    raise SystemExit(run_on_device(args.device_host, passthrough))
 
   root = Path(args.root) if args.root else route_root()
 
@@ -104,7 +154,7 @@ def main():
       print(f"  {name}  ({routes[name]} segments, ~{routes[name]} min)")
     return
 
-  route, segment_dirs = segments_for(root, args.route)
+  route, segment_dirs = segments_for(root, args.route, args.longest)
   print(f"Reading {route} ({len(segment_dirs)} segments) from {root}\n")
 
   first: dict[str, int] = {}
