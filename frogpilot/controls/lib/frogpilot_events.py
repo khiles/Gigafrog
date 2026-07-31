@@ -47,6 +47,10 @@ SISSY_CORNERING_ACCEL = 3.2      # m/s^2
 # Only the early distraction window. Above this the real driver monitoring warning owns the
 # screen, and a joke must never sit on top of it or delay it.
 SISSY_DM_MIN_AWARENESS = 0.7
+# Distraction has to be sustained, like every other trigger. isDistracted flickers on brief
+# glances, sun glare and sunglasses, so acting on a single frame of it fires while the driver is
+# looking straight at the road — which is exactly what happened on the car.
+SISSY_DM_SUSTAIN = 2.5           # s continuously distracted before it says anything
 
 SISSY_ACCEL = 2.2                # m/s^2, pulling away hard
 SISSY_ROUGHNESS = 3.0            # m/s^2 RMS vertical — a pothole, not a coarse surface
@@ -146,6 +150,7 @@ class FrogPilotEvents:
     self.sissy_tier = 0
     self.sissy_clean_t = 0.0
     self.sissy_lane_change_prev = False
+    self.sissy_distracted_t = 0.0
     # Seeded past the repeat like the taunt cooldowns above, so the first compliment waits
     # only on the clean-time rather than on a full repeat period as well
     self.sissy_since_praise = SISSY_PRAISE_REPEAT
@@ -211,6 +216,10 @@ class FrogPilotEvents:
     # monitoring warning owns the screen, and a joke must never sit on top of it or delay it.
     dm = sm["driverMonitoringState"]
     if dm.isActiveMode and dm.isDistracted and dm.awarenessStatus > SISSY_DM_MIN_AWARENESS:
+      self.sissy_distracted_t += DT_MDL
+    else:
+      self.sissy_distracted_t = 0.0
+    if self.sissy_distracted_t >= SISSY_DM_SUSTAIN * thresh_scale:
       candidates.append("distracted")
 
     if car_state.aEgo >= SISSY_ACCEL * thresh_scale:

@@ -64,6 +64,12 @@ MAX_LANE_WIDTH = 4.5       # m
 TRIM_DEADBAND = 0.05       # m, below this there is nothing worth correcting
 TRIM_GAIN = 1.2            # (m/s^2) per m of offset, before the user's own gain
 TRIM_MAX_ACCEL = 1.0       # m/s^2, hard cap on the demand
+# How fast the demand may change. A standing bias does not appear suddenly, so a correction for
+# one has no business moving quickly — and this is what stops the trim wandering. Raising the gain
+# to fix kerb-hugging made the correction strong enough to visibly fight the model, and a
+# proportional term fighting a closed loop is exactly what oscillates. Slew-limiting it means the
+# trim physically cannot move at the frequencies that feel like the car hunting around.
+TRIM_SLEW = 0.15           # m/s^2 per second — about 7s from nothing to the cap
 
 
 class FrogPilotLaneCentering:
@@ -78,19 +84,30 @@ class FrogPilotLaneCentering:
 
   def update_trim(self, enabled, gain):
     """Proportional correction toward lane centre. Deliberately has no integrator — see above."""
-    if not (enabled and self.lane_offset_valid):
-      self.trim_lateral_accel = 0.0
+    if not enabled:
+      self.trim_lateral_accel = 0.0   # switched off means off immediately, not a ramp
+      return
+
+    # Losing the measurement or entering the deadband releases the trim, but at the same bounded
+    # rate — snapping to zero would be a step change in steering, which is the thing being avoided.
+    if not self.lane_offset_valid or abs(self.lane_offset_filtered) < TRIM_DEADBAND:
+      self._slew_to(0.0)
       return
 
     error = self.lane_offset_filtered
-    if abs(error) < TRIM_DEADBAND:
-      self.trim_lateral_accel = 0.0
-      return
 
     # Positive offset means the lane centre is to the right, so the correction is to the right,
     # which is also positive in this frame — no sign flip.
     demand = (error - math.copysign(TRIM_DEADBAND, error)) * TRIM_GAIN * gain
-    self.trim_lateral_accel = float(np.clip(demand, -TRIM_MAX_ACCEL, TRIM_MAX_ACCEL))
+    demand = float(np.clip(demand, -TRIM_MAX_ACCEL, TRIM_MAX_ACCEL))
+    self._slew_to(demand)
+
+  def _slew_to(self, demand):
+    """Move toward the demand at a bounded rate rather than jumping to it."""
+    step = TRIM_SLEW * DT_MDL
+    self.trim_lateral_accel = float(np.clip(demand,
+                                            self.trim_lateral_accel - step,
+                                            self.trim_lateral_accel + step))
 
   def update(self, model_v2, v_ego, lane_change_active):
     lane_lines = model_v2.laneLines
@@ -125,5 +142,4 @@ class FrogPilotLaneCentering:
     self.lane_offset_filtered = 0.0
     self.lane_offset_valid = False
     self.lane_width = 0.0
-    self.trim_lateral_accel = 0.0
     self.offset_filter.x = 0.0
