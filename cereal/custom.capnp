@@ -47,10 +47,6 @@ struct FrogPilotCarControl @0x81c2f05a394cf4af {
       startup @20;
       thisIsFine @21;
       uwu @22;
-
-      # Spoken Sissy Mode taunt. soundd resolves the actual audio from a hash of the
-      # alert text, so one enumerant covers every line.
-      sissyTaunt @23;
     }
   }
 }
@@ -174,20 +170,6 @@ struct FrogPilotOnroadEvent @0xa5cd762cd951a455 {
     mapHazard @29;
     speedLimitExceeded @30;
     tailgating @31;
-
-    # Sissy Mode taunts. Also outside the random event range, and deliberately so — they carry
-    # their own cooldowns rather than the one-per-drive random event machinery.
-    sissyLaneHugging @32;
-    sissyHardBraking @33;
-    sissyCornering @34;
-    sissyTailgating @35;
-    sissySpeeding @36;
-    sissyDistracted @37;
-    sissyPraise @38;
-    sissyHarshAccel @39;
-    sissyPothole @40;
-    sissyBlindSpotChange @41;
-    sissyStopLine @42;
   }
 }
 
@@ -243,23 +225,14 @@ struct FrogPilotPlan @0xf98d843bfd7004a3 {
   measuredLaneWidth @41 :Float32;      # m, distance between the two ego lane lines
   laneTrimLateralAccel @42 :Float32;   # m/s^2, right-positive; 0 unless the trim is on
 
-  # How many times the Sissy Mode trigger that just fired has fired this drive. Counted in
-  # the planner but needed by the alert text, which is built in selfdrived — this is the
-  # only way across, since selfdrived can read frogpilotPlan and the planner cannot.
-  sissyOffenceCount @43 :UInt16;
-  # Which taunt tier to draw from, escalating with the drive's total offences. Worked out
-  # in the planner because that is where the offences are counted; needed in selfdrived
-  # because that is where the alert text is built.
-  sissyTier @44 :UInt8;
-
   # Curve ahead, from frogpilot_curve_ahead.py. Display only — CSC still does all the
   # slowing. curveAheadSource is 1 for the model and 2 for the car's own map data, and is
   # shown on screen so a wrong map reading is visible rather than silently trusted.
-  curveAhead @45 :Bool;
-  curveAheadTime @46 :Float32;         # s until it gets sharp
-  curveAheadDistance @47 :Float32;     # m
-  curveAheadLatAccel @48 :Float32;     # m/s^2 predicted through it at this speed
-  curveAheadSource @49 :UInt8;
+  curveAhead @43 :Bool;
+  curveAheadTime @44 :Float32;         # s until it gets sharp
+  curveAheadDistance @45 :Float32;     # m
+  curveAheadLatAccel @46 :Float32;     # m/s^2 predicted through it at this speed
+  curveAheadSource @47 :UInt8;
 }
 
 struct FrogPilotRadarState @0xb86e6369214c01c8 {

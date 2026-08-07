@@ -427,7 +427,6 @@ class FrogPilotVariables:
     toggle.prompt_volume = self.get_value("PromptVolume", cast=float, condition=toggle.alert_volume_controller)
     toggle.promptDistracted_volume = self.get_value("PromptDistractedVolume", cast=float, condition=toggle.alert_volume_controller)
     toggle.refuse_volume = self.get_value("RefuseVolume", cast=float, condition=toggle.alert_volume_controller)
-    toggle.sissy_volume = self.get_value("SissyTauntVolume", cast=float, condition=toggle.alert_volume_controller, default=100)
     toggle.warningSoft_volume = self.get_value("WarningSoftVolume", cast=float, condition=toggle.alert_volume_controller)
     toggle.warningImmediate_volume = max(self.get_value("WarningImmediateVolume", cast=float, condition=toggle.alert_volume_controller, default=25), 25)
 
@@ -715,17 +714,6 @@ class FrogPilotVariables:
     toggle.rainbow_path = self.get_value("RainbowPath", condition=not toggle.debug_mode)
 
     toggle.random_events = self.get_value("RandomEvents")
-    toggle.sissy_mode = self.get_value("SissyMode")
-    toggle.sissy_cruelty = self.get_value("SissyModeCruelty", cast=float, condition=toggle.sissy_mode, default=3)
-
-    # Parked taunting. Gated on sissy_mode as well, so the one switch turns all of it off.
-    toggle.good_girl_mode = self.get_value("GoodGirlMode", condition=toggle.sissy_mode)
-    toggle.good_girl_interval = self.get_value("GoodGirlInterval", cast=float, condition=toggle.good_girl_mode, default=300)
-    # Stored in minutes, used in seconds.
-    toggle.good_girl_session = self.get_value("GoodGirlSession", cast=float, condition=toggle.good_girl_mode, default=30, conversion=60)
-    # Deliberately not gated on alert_volume_controller like sissy_volume: the parked path sets
-    # its own volume directly, and must not depend on an unrelated toggle to be audible.
-    toggle.good_girl_volume = self.get_value("GoodGirlVolume", cast=float, condition=toggle.good_girl_mode, default=60)
     toggle.tesla_turn_indicator = self.get_value("TeslaTurnIndicator")
 
     screen_management = self.get_value("ScreenManagement")

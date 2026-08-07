@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 import random
 
-from cereal import log
-
 from openpilot.common.constants import ACCELERATION_DUE_TO_GRAVITY, CV
 from openpilot.common.realtime import DT_MDL
 from openpilot.selfdrive.controls.lib.desire_helper import TurnDirection
@@ -30,83 +28,6 @@ RANDOM_EVENTS_LENGTH = 5
 RANDOM_EVENT_START = FrogPilotEventName.accel30
 RANDOM_EVENT_END = FrogPilotEventName.youveGotMail
 
-# Taunts. The wording lives in SISSY_TAUNTS in selfdrive/selfdrived/events.py, next to the other
-# alert text — this module cannot own it, because events.py would have to import from here and
-# this file already imports from events.py.
-#
-# Harsh by design, which makes the rate limiting matter more, not less — a constant stream
-# of abuse on screen stops being funny and starts being a distraction.
-SISSY_GLOBAL_COOLDOWN = 20.0     # s between taunts of any kind
-SISSY_REPEAT = 45.0              # s before the same trigger can fire again
-SISSY_MIN_SPEED = 5.0            # m/s
-
-SISSY_LANE_OFFSET = 0.30         # m off centre
-SISSY_LANE_SUSTAIN = 5.0         # s continuously off centre
-SISSY_BRAKING_ACCEL = -2.8       # m/s^2
-SISSY_CORNERING_ACCEL = 3.2      # m/s^2
-# Only the early distraction window. Above this the real driver monitoring warning owns the
-# screen, and a joke must never sit on top of it or delay it.
-SISSY_DM_MIN_AWARENESS = 0.7
-# Distraction has to be sustained, like every other trigger. isDistracted flickers on brief
-# glances, sun glare and sunglasses, so acting on a single frame of it fires while the driver is
-# looking straight at the road — which is exactly what happened on the car.
-SISSY_DM_SUSTAIN = 2.5           # s continuously distracted before it says anything
-
-SISSY_ACCEL = 2.2                # m/s^2, pulling away hard
-SISSY_ROUGHNESS = 3.0            # m/s^2 RMS vertical — a pothole, not a coarse surface
-# A lane change begun while that side is occupied. The stock blind spot warning already fires;
-# this only adds commentary afterwards and must never race it, hence the alerts_empty gate above.
-SISSY_STOP_LINE_OVERSHOOT = -1.0  # m past the line before it counts as having run it
-
-SISSY_EVENTS = {
-  "lane_hugging": FrogPilotEventName.sissyLaneHugging,
-  "hard_braking": FrogPilotEventName.sissyHardBraking,
-  "cornering": FrogPilotEventName.sissyCornering,
-  "tailgating": FrogPilotEventName.sissyTailgating,
-  "speeding": FrogPilotEventName.sissySpeeding,
-  "distracted": FrogPilotEventName.sissyDistracted,
-  "harsh_accel": FrogPilotEventName.sissyHarshAccel,
-  "pothole": FrogPilotEventName.sissyPothole,
-  "blind_spot": FrogPilotEventName.sissyBlindSpotChange,
-  "stop_line": FrogPilotEventName.sissyStopLine,
-}
-
-# Explicit set, not an ordinal range. A range would silently capture any enumerant appended
-# after the taunts, which is exactly the trap RANDOM_EVENT_START..END already sets.
-SISSY_OFFENCE_EVENTS = frozenset(SISSY_EVENTS.values())
-
-# Praise is deliberately not in SISSY_EVENTS: it is not an offence, must not be counted as one,
-# and must not be picked by the offence selection below.
-SISSY_PRAISE_EVENT = FrogPilotEventName.sissyPraise
-SISSY_PRAISE_CLEAN_TIME = 300.0   # s of clean driving before it says anything nice
-SISSY_PRAISE_REPEAT = 600.0       # s between compliments, so it stays rare enough to sting
-
-# Cruelty dial, 1-5. Scales thresholds down and cooldowns down together.
-#
-# The cooldown floor is not negotiable: at maximum this should be relentless, not continuous. A
-# taunt every couple of seconds stops being a joke and becomes a genuine distraction, and the
-# suppression while a real alert is on screen has to keep working at every setting.
-SISSY_COOLDOWN_FLOOR = 8.0        # s, absolute minimum between taunts at any cruelty
-
-# Escalation. Tier index into SISSY_TIERS in events.py, chosen by the running offence total for
-# the drive: below the first number it stays mild, past the second it is brutal for the rest of
-# the drive unless you earn it back.
-SISSY_TIER_THRESHOLDS = (3, 8)
-# A compliment walks the total back, so a genuinely good stretch de-escalates rather than leaving
-# you branded for one bad junction an hour ago.
-SISSY_PRAISE_FORGIVENESS = 3
-
-
-def sissy_tier_for(total):
-  """Tier index for a drive's running offence total."""
-  return sum(total >= t for t in SISSY_TIER_THRESHOLDS)
-
-
-def sissy_scale(cruelty):
-  """Return (threshold_scale, cooldown_scale) for a 1-5 cruelty setting."""
-  cruelty = min(max(float(cruelty), 1.0), 5.0)
-  frac = (cruelty - 1.0) / 4.0
-  return 1.0 - 0.5 * frac, 1.0 - 0.75 * frac
 
 class FrogPilotEvents:
   def __init__(self, FrogPilotPlanner, error_log, ThemeManager):
@@ -138,149 +59,7 @@ class FrogPilotEvents:
     # rather than waiting a full repeat period before it can ever speak
     self.tailgating_since_alert = TAILGATING_REPEAT
 
-    # Seeded past the cooldowns so the first taunt lands as soon as it is earned
-    self.sissy_lane_t = 0.0
-    self.sissy_since_taunt = SISSY_GLOBAL_COOLDOWN
-    self.sissy_since_trigger = {trigger: SISSY_REPEAT for trigger in SISSY_EVENTS}
-    # Per-drive tallies. This object is rebuilt on every onroad transition, so they reset by
-    # themselves; the count of whichever trigger just fired is published for the alert text.
-    self.sissy_counts = {trigger: 0 for trigger in SISSY_EVENTS}
-    self.sissy_offence_count = 0
-    self.sissy_total = 0
-    self.sissy_tier = 0
-    self.sissy_clean_t = 0.0
-    self.sissy_lane_change_prev = False
-    self.sissy_distracted_t = 0.0
-    # Seeded past the repeat like the taunt cooldowns above, so the first compliment waits
-    # only on the clean-time rather than on a full repeat period as well
-    self.sissy_since_praise = SISSY_PRAISE_REPEAT
-
     self.error_log = error_log
-
-  def update_sissy_mode(self, sm, frogpilot_toggles, alerts_empty):
-    """Taunt the driver. Purely cosmetic — every event here is ET.PERMANENT, which the selfdrive
-    state machine does not react to, so none of it can affect how the car drives.
-
-    Same rule as everything else in this file: read the planner objects, never sm["frogpilotPlan"],
-    because this runs inside the process that publishes that message.
-    """
-    self.sissy_since_taunt += DT_MDL
-    self.sissy_since_praise += DT_MDL
-    for trigger in self.sissy_since_trigger:
-      self.sissy_since_trigger[trigger] += DT_MDL
-
-    # Edge-detected before any of the gates below. If this only tracked past them, a lane change
-    # begun while a real alert was on screen would look like a fresh one the moment that alert
-    # cleared, and fire for a manoeuvre already well underway.
-    lane_change = sm["modelV2"].meta.laneChangeState != log.LaneChangeState.off
-    lane_change_started = lane_change and not self.sissy_lane_change_prev
-    self.sissy_lane_change_prev = lane_change
-
-    if not frogpilot_toggles.sissy_mode:
-      self.sissy_lane_t = 0.0
-      self.sissy_clean_t = 0.0
-      return
-
-    car_state = sm["carState"]
-    # Never talk over a real alert, and stay quiet when parked or crawling
-    if not alerts_empty or car_state.standstill or car_state.vEgo < SISSY_MIN_SPEED:
-      self.sissy_lane_t = 0.0
-      return
-
-    thresh_scale, cooldown_scale = sissy_scale(frogpilot_toggles.sissy_cruelty)
-    global_cooldown = max(SISSY_GLOBAL_COOLDOWN * cooldown_scale, SISSY_COOLDOWN_FLOOR)
-    repeat = max(SISSY_REPEAT * cooldown_scale, SISSY_COOLDOWN_FLOOR)
-
-    planner = self.frogpilot_planner
-
-    # Lane hugging has to be sustained — a single frame off centre is a bend, not a habit
-    centering = planner.frogpilot_lane_centering
-    if centering.lane_offset_valid and abs(centering.lane_offset_filtered) > SISSY_LANE_OFFSET * thresh_scale:
-      self.sissy_lane_t += DT_MDL
-    else:
-      self.sissy_lane_t = 0.0
-
-    candidates = []
-    if self.sissy_lane_t >= SISSY_LANE_SUSTAIN * thresh_scale:
-      candidates.append("lane_hugging")
-    if car_state.aEgo <= SISSY_BRAKING_ACCEL * thresh_scale:
-      candidates.append("hard_braking")
-    if abs(planner.frogpilot_pose.cornering_acceleration) >= SISSY_CORNERING_ACCEL * thresh_scale:
-      candidates.append("cornering")
-    if self.tailgating_t >= TAILGATING_SUSTAIN * thresh_scale:
-      candidates.append("tailgating")
-    if self.speeding_t >= SPEEDING_SUSTAIN * thresh_scale:
-      candidates.append("speeding")
-
-    # Only the early distraction window. Once awareness has decayed past this the real driver
-    # monitoring warning owns the screen, and a joke must never sit on top of it or delay it.
-    dm = sm["driverMonitoringState"]
-    if dm.isActiveMode and dm.isDistracted and dm.awarenessStatus > SISSY_DM_MIN_AWARENESS:
-      self.sissy_distracted_t += DT_MDL
-    else:
-      self.sissy_distracted_t = 0.0
-    if self.sissy_distracted_t >= SISSY_DM_SUSTAIN * thresh_scale:
-      candidates.append("distracted")
-
-    if car_state.aEgo >= SISSY_ACCEL * thresh_scale:
-      candidates.append("harsh_accel")
-
-    # A pothole is a spike in vertical acceleration, not a rough surface — road_roughness is RMS
-    # about its own slow mean (frogpilot_pose.py), so a consistently coarse road does not register.
-    if planner.frogpilot_pose.road_roughness >= SISSY_ROUGHNESS * thresh_scale:
-      candidates.append("pothole")
-
-    # Starting a lane change with that side occupied. Only on the rising edge of the manoeuvre:
-    # once committed, a car alongside is normal and would otherwise fire every frame.
-    direction = sm["modelV2"].meta.laneChangeDirection
-    occupied = (car_state.leftBlindspot if direction == log.LaneChangeDirection.left
-                else car_state.rightBlindspot if direction == log.LaneChangeDirection.right
-                else False)
-    if lane_change_started and occupied:
-      candidates.append("blind_spot")
-
-    # Tesla's own map stop lines. Gated on roadSignValid, so a car that does not send
-    # UI_driverAssistRoadSign never fires this rather than firing on a confident zero.
-    fp_car_state = sm["frogpilotCarState"]
-    if fp_car_state.roadSignValid:
-      for distance in (fp_car_state.stopSignDistance, fp_car_state.trafficLightDistance):
-        # -1 means "not seen yet"; only a genuinely negative distance means it is behind you
-        if SISSY_STOP_LINE_OVERSHOOT > distance > -50.0 and car_state.vEgo > SISSY_MIN_SPEED:
-          candidates.append("stop_line")
-          break
-
-    # A clean stretch is one with nothing to complain about at all, not merely a quiet cooldown,
-    # so any live offence resets it even when the taunt itself is rate limited.
-    if candidates:
-      self.sissy_clean_t = 0.0
-    else:
-      self.sissy_clean_t += DT_MDL
-
-    if self.sissy_since_taunt < global_cooldown:
-      return
-
-    ready = [t for t in candidates if self.sissy_since_trigger[t] >= repeat]
-
-    if not ready:
-      # Nothing to criticise — reward a genuinely long clean run, rarely
-      if (self.sissy_clean_t >= SISSY_PRAISE_CLEAN_TIME * thresh_scale
-          and self.sissy_since_praise >= SISSY_PRAISE_REPEAT):
-        self.events.add(SISSY_PRAISE_EVENT)
-        self.sissy_since_taunt = 0.0
-        self.sissy_since_praise = 0.0
-        self.sissy_clean_t = 0.0
-        self.sissy_total = max(self.sissy_total - SISSY_PRAISE_FORGIVENESS, 0)
-        self.sissy_tier = sissy_tier_for(self.sissy_total)
-      return
-
-    trigger = random.choice(ready)
-    self.sissy_counts[trigger] += 1
-    self.sissy_offence_count = self.sissy_counts[trigger]
-    self.sissy_total += 1
-    self.sissy_tier = sissy_tier_for(self.sissy_total)
-    self.events.add(SISSY_EVENTS[trigger])
-    self.sissy_since_taunt = 0.0
-    self.sissy_since_trigger[trigger] = 0.0
 
   def update_speeding(self, sm, frogpilot_toggles):
     """Warn when over the posted limit. Distinct from EventName.speedTooHigh, which means
@@ -311,8 +90,7 @@ class FrogPilotEvents:
       if sm["carState"].vEgo < threshold - SPEEDING_REARM:
         self.speeding_armed = True
 
-    # The timer above runs whenever a limit is known, so Sissy Mode can reuse it even with this
-    # alert switched off; only the alert itself is gated on the toggle.
+    # The timer above runs whenever a limit is known; only the alert itself is gated on the toggle.
     if not frogpilot_toggles.speed_limit_exceeded_alert:
       return
 
@@ -347,7 +125,7 @@ class FrogPilotEvents:
     else:
       self.tailgating_t = 0.0
 
-    # As above: the timer is toggle-independent so Sissy Mode can reuse it, the alert is not.
+    # As above: the timer is toggle-independent, the alert is not.
     if not frogpilot_toggles.tailgating_alert:
       return
 
@@ -399,8 +177,6 @@ class FrogPilotEvents:
 
     self.update_speeding(sm, frogpilot_toggles)
     self.update_tailgating(sm, frogpilot_toggles)
-    # After the two above, because it reuses their sustain timers
-    self.update_sissy_mode(sm, frogpilot_toggles, alerts_empty)
 
     if self.frogpilot_planner.tracking_lead and sm["carState"].standstill and sm["carState"].gearShifter not in NON_DRIVING_GEARS:
       if self.tracked_lead_distance == 0:

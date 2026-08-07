@@ -35,7 +35,6 @@ import sys
 
 from pathlib import Path
 
-# Same device defaults as make_taunt_speech.py
 DEVICE_HOST = os.environ.get("FROGPILOT_DEVICE", "192.168.1.11")
 DEVICE_USER = "comma"
 DEVICE_REPO = "/data/openpilot"

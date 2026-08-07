@@ -200,8 +200,6 @@ class FrogPilotPlanner:
     frogpilotPlan.laneOffsetValid = self.frogpilot_lane_centering.lane_offset_valid
     frogpilotPlan.measuredLaneWidth = float(self.frogpilot_lane_centering.lane_width)
     frogpilotPlan.laneTrimLateralAccel = float(self.frogpilot_lane_centering.trim_lateral_accel)
-    frogpilotPlan.sissyOffenceCount = int(self.frogpilot_events.sissy_offence_count)
-    frogpilotPlan.sissyTier = int(self.frogpilot_events.sissy_tier)
 
     curve = self.frogpilot_curve_ahead
     frogpilotPlan.curveAhead = curve.curve_ahead and frogpilot_toggles.curve_ahead_warning

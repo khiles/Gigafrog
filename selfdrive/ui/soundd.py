@@ -1,4 +1,3 @@
-import hashlib
 import math
 import numpy as np
 import time
@@ -17,8 +16,6 @@ from openpilot.common.swaglog import cloudlog
 from openpilot.system import micd
 from openpilot.system.hardware import HARDWARE
 
-from openpilot.selfdrive.selfdrived.events import first_taunt_line
-
 from openpilot.frogpilot.common.frogpilot_variables import ACTIVE_THEME_PATH, ERROR_LOGS_PATH, RANDOM_EVENTS_PATH, get_frogpilot_toggles
 
 SAMPLE_RATE = 48000
@@ -36,30 +33,6 @@ if HARDWARE.get_device_type() in ("tici", "tizi"):
   VOLUME_BASE = 10
 
 AudibleAlert = car.CarControl.HUDControl.AudibleAlert
-
-# Spoken Sissy Mode taunts, one wav per line, named by a hash of the text so the pool stays
-# editable. Rendered off-device by frogpilot/tools/make_taunt_speech.py.
-#
-# Checked in that order: the repo copy ships with the fork and arrives on the device with any
-# update, so rendered lines are always present without copying anything by hand. /data/media
-# wins when both exist, so a line can still be dropped on the device directly without a commit.
-#
-# Loaded on demand rather than with the rest: soundd keeps every sound resident as float32,
-# which is ~190KB per second of audio, and a pile of spoken lines would be a real memory cost.
-TAUNT_SPEECH_PATHS = (Path("/data/media/taunt_speech"),
-                      Path(BASEDIR) / "frogpilot/assets/taunt_speech")
-TAUNT_CACHE_SIZE = 4
-
-
-def taunt_speech_key(line_1: str) -> str:
-  """Hash of line 1 only. Must match make_taunt_speech.py or nothing plays.
-
-  Line 2 is deliberately excluded from the KEY: it carries live values like the running offence
-  count, so hashing it would change the key on every firing and the line would silently have no
-  audio. Both lines are still spoken — the key is only the filename and does not have to describe
-  the whole clip. make_taunt_speech.py keeps a manifest so a line-2 edit still re-renders.
-  """
-  return hashlib.sha1(line_1.encode()).hexdigest()[:16]
 
 # FrogPilot variables
 FrogPilotAudibleAlert = custom.FrogPilotCarControl.HUDControl.AudibleAlert
@@ -93,8 +66,6 @@ sound_list: dict[int, tuple[str, int | None, float]] = {
   FrogPilotAudibleAlert.startup: ("startup.wav", 1, MAX_VOLUME),
   FrogPilotAudibleAlert.thisIsFine: ("this_is_fine.wav", 1, MAX_VOLUME),
   FrogPilotAudibleAlert.uwu: ("uwu.wav", 1, MAX_VOLUME),
-  # Resolved at play time from the alert text, so there is no fixed file here.
-  FrogPilotAudibleAlert.sissyTaunt: (None, 1, MAX_VOLUME),
 }
 if HARDWARE.get_device_type() in ("tici", "tizi"):
   sound_list.update({
@@ -133,10 +104,6 @@ class Soundd:
 
     self.previous_sound_pack = None
 
-    # key -> samples, bounded so a long taunt pool cannot grow soundd's memory
-    self.taunt_sounds: dict[str, np.ndarray] = {}
-    self.taunt_current: np.ndarray | None = None
-
     self.error_log = ERROR_LOGS_PATH / "error.txt"
     self.random_events_directory = RANDOM_EVENTS_PATH / "sounds"
 
@@ -148,8 +115,6 @@ class Soundd:
     # Load all sounds
     for sound in sound_list:
       filename, play_count, volume = sound_list[sound]
-      if filename is None:  # resolved at play time, see load_taunt_speech
-        continue
 
       random_events_path = self.random_events_directory / filename
       sounds_path = self.sound_directory / filename
@@ -175,51 +140,13 @@ class Soundd:
       length = wavefile.getnframes()
       self.loaded_sounds[sound] = np.frombuffer(wavefile.readframes(length), dtype=np.int16).astype(np.float32) / (2**16/2)
 
-  def load_taunt_speech(self, line_1):
-    """Resolve the spoken line for the taunt about to play, loading it only if needed.
-
-    A missing file is normal, not a fault: the pool is meant to be edited and a line that has
-    not been rendered yet simply has no audio. Never raise here — soundd dying takes every
-    alert sound with it, including the safety-relevant ones.
-    """
-    key = taunt_speech_key(line_1)
-
-    if key not in self.taunt_sounds:
-      path = next((p / f"{key}.wav" for p in TAUNT_SPEECH_PATHS if (p / f"{key}.wav").is_file()), None)
-      if path is None:
-        return None
-      try:
-        with wave.open(str(path), "r") as wavefile:
-          if (wavefile.getnchannels() != 1 or wavefile.getsampwidth() != 2 or
-              wavefile.getframerate() != SAMPLE_RATE):
-            cloudlog.warning(f"soundd: {path} is not mono/16-bit/{SAMPLE_RATE}Hz, skipping")
-            return None
-          frames = wavefile.readframes(wavefile.getnframes())
-        samples = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / (2**16/2)
-      except FileNotFoundError:
-        return None
-      except Exception as exc:
-        cloudlog.warning(f"soundd: could not load {path}: {exc}")
-        return None
-
-      if len(self.taunt_sounds) >= TAUNT_CACHE_SIZE:
-        self.taunt_sounds.pop(next(iter(self.taunt_sounds)))
-      self.taunt_sounds[key] = samples
-
-    return self.taunt_sounds[key]
-
   def get_sound_data(self, frames): # get "frames" worth of data from the current alert sound, looping when required
 
     ret = np.zeros(frames, dtype=np.float32)
 
     if self.current_alert != AudibleAlert.none:
       num_loops = sound_list[self.current_alert][1]
-      if self.current_alert == FrogPilotAudibleAlert.sissyTaunt:
-        sound_data = self.taunt_current
-        if sound_data is None:  # line not rendered yet — stay silent rather than crash
-          return ret
-      else:
-        sound_data = self.loaded_sounds[self.current_alert]
+      sound_data = self.loaded_sounds[self.current_alert]
       written_frames = 0
 
       current_sound_frame = self.current_sound_frame % len(sound_data)
@@ -240,8 +167,7 @@ class Soundd:
     data_out[:frames, 0] = self.get_sound_data(frames)
 
   def update_alert(self, new_alert):
-    playing = self.taunt_current if self.current_alert == FrogPilotAudibleAlert.sissyTaunt \
-              else self.loaded_sounds.get(self.current_alert)
+    playing = self.loaded_sounds.get(self.current_alert)
     current_alert_played_once = self.current_alert == AudibleAlert.none or playing is None \
                                 or self.current_sound_frame > len(playing)
     if self.current_alert != new_alert and (new_alert != AudibleAlert.none or current_alert_played_once):
@@ -258,8 +184,6 @@ class Soundd:
       if alert is None:
         alert = getattr(FrogPilotAudibleAlert, name, None)
       if alert is not None:
-        if alert == FrogPilotAudibleAlert.sissyTaunt:
-          self.taunt_current = self.load_taunt_speech(first_taunt_line()[0])
         self.update_alert(alert)
       else:
         cloudlog.warning(f"soundd: ignoring unknown TestAlert {name!r}")
@@ -276,22 +200,7 @@ class Soundd:
       if new_alert == AudibleAlert.none and new_frogpilot_alert != FrogPilotAudibleAlert.none:
         new_alert = new_frogpilot_alert
 
-      # Resolve the spoken line before switching to it. The text on this message is exactly what
-      # is being displayed, so hashing it here needs no extra plumbing from the planner.
-      if new_alert == FrogPilotAudibleAlert.sissyTaunt and new_alert != self.current_alert:
-        self.taunt_current = self.load_taunt_speech(fpss.alertText1)
-
       self.update_alert(new_alert)
-    elif not sm['deviceState'].started and self.params_memory.get("GoodGirlLine"):
-      # Parked, and frogpilot_process has left a line to say. selfdriveState is not published
-      # offroad at all, which is why this comes via a param rather than an alert message.
-      line_1 = self.params_memory.get("GoodGirlLine")
-      self.params_memory.remove("GoodGirlLine")
-      samples = self.load_taunt_speech(line_1)
-      if samples is not None:
-        self.taunt_current = samples
-        self.good_girl_playing = True
-        self.update_alert(FrogPilotAudibleAlert.sissyTaunt)
     elif check_selfdrive_timeout_alert(sm):
       self.update_alert(AudibleAlert.warningImmediate)
       self.selfdrive_timeout_alert = True
@@ -317,7 +226,7 @@ class Soundd:
     sm = messaging.SubMaster(['selfdriveState', 'soundPressure'])
 
     # FrogPilot variables
-    sm = sm.extend(['frogpilotSelfdriveState', 'frogpilotPlan', 'deviceState'])
+    sm = sm.extend(['frogpilotSelfdriveState', 'frogpilotPlan'])
 
     with self.get_stream(sd) as stream:
       rk = Ratekeeper(20)
@@ -326,20 +235,7 @@ class Soundd:
       while True:
         sm.update(0)
 
-        # A finished parked line has to be released back to none, or update_alert's
-        # "already playing this alert" guard means the *second* line of a session never plays.
-        # Onroad this never bites because alertSound returns to none between taunts.
-        if self.good_girl_playing and (self.taunt_current is None
-                                       or self.current_sound_frame > len(self.taunt_current)):
-          self.good_girl_playing = False
-          self.update_alert(AudibleAlert.none)
-
-        if self.good_girl_playing:
-          # micd is onroad-only, so soundPressure never arrives while parked and the ambient
-          # volume would sit at MIN_VOLUME — inaudible in anything but a silent garage.
-          self.current_volume = self.frogpilot_toggles.good_girl_volume / 100.0
-
-        elif sm.updated['soundPressure'] and self.current_alert == AudibleAlert.none: # only update volume filter when not playing alert
+        if sm.updated['soundPressure'] and self.current_alert == AudibleAlert.none: # only update volume filter when not playing alert
           self.spl_filter_weighted.update(sm["soundPressure"].soundPressureWeightedDb)
           self.current_volume = self.calculate_volume(float(self.spl_filter_weighted.x))
 
@@ -380,11 +276,6 @@ class Soundd:
 
       FrogPilotAudibleAlert.goat: self.frogpilot_toggles.prompt_volume / 100.0,
       FrogPilotAudibleAlert.startup: self.frogpilot_toggles.engage_volume / 100.0,
-
-      # Without an entry here it falls into the 1.01 sentinel below, which means "use the
-      # microphone-driven ambient volume" — and in a quiet cabin that bottoms out around
-      # 0.13, so spoken taunts were barely audible next to every mapped alert.
-      FrogPilotAudibleAlert.sissyTaunt: self.frogpilot_toggles.sissy_volume / 100.0
     }
 
     for sound in sound_list:

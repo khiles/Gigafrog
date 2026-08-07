@@ -25,7 +25,7 @@ private:
 
   std::map<QString, AbstractControl*> toggles;
 
-  QSet<QString> alertVolumeControlKeys {"DisengageVolume", "EngageVolume", "PromptDistractedVolume", "PromptVolume", "RefuseVolume", "SissyTauntVolume", "WarningImmediateVolume", "WarningSoftVolume"};
+  QSet<QString> alertVolumeControlKeys {"DisengageVolume", "EngageVolume", "PromptDistractedVolume", "PromptVolume", "RefuseVolume", "WarningImmediateVolume", "WarningSoftVolume"};
   QSet<QString> customAlertsKeys {"GoatScream", "GreenLightAlert", "LeadDepartingAlert", "LoudBlindspotAlert", "MapHazardAlert", "SpeedLimitChangedAlert", "SpeedLimitExceededAlert", "SpeedLimitExceededMargin", "TailgatingAlert"};
 
   QSet<QString> parentKeys;

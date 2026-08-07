@@ -209,102 +209,12 @@ def test_tailgating_scales_with_the_drivers_own_gap():
   assert E.FrogPilotEventName.tailgating in long.events.added
 
 
-SISSY_EVENT_NAMES = ["sissyLaneHugging", "sissyHardBraking", "sissyCornering",
-                     "sissyTailgating", "sissySpeeding", "sissyDistracted", "sissyPraise",
-                     "sissyHarshAccel", "sissyPothole", "sissyBlindSpotChange", "sissyStopLine"]
-
-
-@pytest.mark.parametrize("event", ["speedLimitExceeded", "tailgating"] + SISSY_EVENT_NAMES)
+@pytest.mark.parametrize("event", ["speedLimitExceeded", "tailgating"])
 def test_events_are_outside_the_random_event_range(event):
   # frogpilot_events tests RANDOM_EVENT_START <= event <= RANDOM_EVENT_END, so a new
   # non-random event inside 17..28 would be treated as a random event
   value = getattr(E.FrogPilotEventName, event)
   assert not (E.RANDOM_EVENT_START <= value <= E.RANDOM_EVENT_END)
-
-
-@pytest.mark.parametrize("event", SISSY_EVENT_NAMES)
-def test_sissy_taunts_can_never_affect_driving(event):
-  """The one that matters. selfdrived/state.py reacts to USER_DISABLE, IMMEDIATE_DISABLE,
-  SOFT_DISABLE, OVERRIDE_* and NO_ENTRY; PERMANENT appears nowhere in it. A joke must never be
-  able to disengage the car or block engagement, so every taunt must be PERMANENT and nothing
-  else."""
-  from openpilot.selfdrive.selfdrived.events import ET, FROGPILOT_EVENTS
-  entry = FROGPILOT_EVENTS[getattr(E.FrogPilotEventName, event)]
-  assert set(entry.keys()) == {ET.PERMANENT}, f"{event} has non-cosmetic event types: {set(entry)}"
-
-
-@pytest.mark.parametrize("trigger", ["lane_hugging", "hard_braking", "cornering",
-                                     "tailgating", "speeding", "distracted",
-                                     "harsh_accel", "pothole", "blind_spot", "stop_line"])
-def test_every_taunt_trigger_has_all_tiers(trigger):
-  """Escalation picks a tier by name, so a missing or empty tier would silently fall back and
-  that trigger would never reach its worst lines."""
-  from openpilot.selfdrive.selfdrived.events import SISSY_TAUNTS, SISSY_TIERS
-  tiers = SISSY_TAUNTS[trigger]
-  assert set(tiers) == set(SISSY_TIERS)
-  for tier in SISSY_TIERS:
-    assert tiers[tier], f"{trigger}/{tier} is empty"
-    for line_1, _ in tiers[tier]:
-      assert line_1, "line 1 is what gets hashed and spoken; it cannot be empty"
-
-
-def test_tier_escalates_with_offences():
-  from openpilot.frogpilot.controls.lib.frogpilot_events import (
-    SISSY_TIER_THRESHOLDS, sissy_tier_for)
-  assert sissy_tier_for(0) == 0
-  assert sissy_tier_for(SISSY_TIER_THRESHOLDS[0]) == 1
-  assert sissy_tier_for(SISSY_TIER_THRESHOLDS[1]) == 2
-  # monotonic, and never past the last tier
-  seen = [sissy_tier_for(n) for n in range(200)]
-  assert seen == sorted(seen)
-  assert max(seen) == len(SISSY_TIER_THRESHOLDS)
-
-
-def test_every_offence_event_has_a_pool():
-  """SISSY_EVENTS drives selection; a trigger with no pool would fire and render an empty alert."""
-  from openpilot.frogpilot.controls.lib.frogpilot_events import SISSY_EVENTS
-  from openpilot.selfdrive.selfdrived.events import SISSY_TAUNTS
-  assert set(SISSY_EVENTS) == set(SISSY_TAUNTS)
-
-
-def test_every_line_is_unique_across_tiers():
-  """Line 1 is the speech key, so a duplicate across tiers would share one audio file and the
-  tiers would sound identical."""
-  from openpilot.selfdrive.selfdrived.events import SISSY_TAUNTS
-  firsts = [a for tiers in SISSY_TAUNTS.values() for lines in tiers.values() for a, _ in lines]
-  assert len(firsts) == len(set(firsts)), "duplicate line 1 across the pool"
-
-
-def test_praise_pool_exists():
-  from openpilot.selfdrive.selfdrived.events import SISSY_PRAISE
-  assert len(SISSY_PRAISE) == 10
-  for line_1, _ in SISSY_PRAISE:
-    assert line_1
-
-
-def test_speech_key_ignores_line_two():
-  """Line 2 carries the live offence count. If it fed the hash, every repeat would resolve to a
-  file that does not exist and the taunt would be silent."""
-  from openpilot.selfdrive.ui.soundd import taunt_speech_key
-  assert taunt_speech_key("SAME") == taunt_speech_key("SAME")
-  assert taunt_speech_key("A") != taunt_speech_key("B")
-
-
-def test_anti_repeat_cannot_deadlock():
-  """History longer than the pool must fall back rather than run out of choices."""
-  from openpilot.selfdrive.selfdrived import events as E2
-  pool = [("a", ""), ("b", "")]
-  for _ in range(50):
-    assert 0 <= E2.sissy_pick("_deadlock_probe", pool) < len(pool)
-
-
-def test_anti_repeat_spreads_picks():
-  from openpilot.selfdrive.selfdrived import events as E2
-  pool = [(str(i), "") for i in range(10)]
-  picks = [E2.sissy_pick("_spread_probe", pool) for _ in range(200)]
-  # with a history of 4 no index may repeat inside any window of 5
-  for i in range(len(picks) - 4):
-    assert len(set(picks[i:i + 5])) == 5, f"repeat inside window at {i}: {picks[i:i + 5]}"
 
 
 def test_alerts_only_read_subscribed_services():

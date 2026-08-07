@@ -95,9 +95,3 @@ Pipfile
 # Ignore all local history of files
 .history
 .ionide
-
-# Rendered taunt speech. Deliberately not committed: these are large binaries and every
-# re-render would add their full size to the history again, permanently. Get them onto the
-# car with `frogpilot/tools/make_taunt_speech.py --deploy`, which copies to /data/media on
-# the device — a location the updater does not touch, so they survive updates.
-frogpilot/assets/taunt_speech/

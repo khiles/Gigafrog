@@ -233,11 +233,6 @@ FrogPilotThemesPanel::FrogPilotThemesPanel(FrogPilotSettingsWindow *parent, bool
     {"HolidayThemes", tr("Holiday Themes"), tr("<b>Themes based on U.S. holidays.</b> Minor holidays last one day; major holidays (Christmas, Easter, Halloween) run for a full week."), "../../frogpilot/assets/toggle_icons/icon_calendar.png"},
     {"RainbowPath", tr("Rainbow Path"), tr("<b>Color the driving path like a Mario Kart–style \"Rainbow Road\".</b>"), "../../frogpilot/assets/toggle_icons/icon_rainbow.png"},
     {"RandomEvents", tr("Random Events"), tr("<b>Occasional on-screen effects triggered by driving conditions.</b> These are purely a visual and don't impact how openpilot drives!"), "../../frogpilot/assets/toggle_icons/icon_random.png"},
-    {"SissyMode", tr("Sissy Mode"), tr("<b>Turns everything pink and has openpilot insult your driving.</b><br><br>Taunts are triggered by how you actually drive — drifting off centre, heavy braking, harsh cornering, tailgating, speeding, or looking away from the road. Purely cosmetic: it cannot change how openpilot drives. The wording lives in SISSY_TAUNTS in selfdrive/selfdrived/events.py and is yours to edit."), "../../frogpilot/assets/toggle_icons/icon_random.png"},
-    {"SissyModeCruelty", tr("Cruelty"), tr("<b>How easily \"Sissy Mode\" takes offence, and how often it speaks.</b><br><br>1 is occasional and only for obvious mistakes; 5 trips on far smaller ones and talks much more. There is a hard floor on how often it can speak at any setting, so it cannot become a constant stream."), ""},
-    {"GoodGirlMode", tr("Good Girl Mode"), tr("<b>Keeps talking at you after you park, through the speaker.</b><br><br>The drive is over, the engine is off, and it has opinions about you still sitting there.<br><br><b>This costs 12V battery.</b> The device normally powers its speaker down when the screen sleeps; this keeps it awake for the session, so parking with it enabled draws more than parking without it. It stops on its own at the session limit, on low voltage, and the instant you switch the car on, and it can never prevent the device shutting down on its normal schedule — but it is still extra drain. Wording lives in GOOD_GIRL_LINES in selfdrive/selfdrived/events.py."), "../../frogpilot/assets/toggle_icons/icon_random.png"},
-    {"GoodGirlInterval", tr("Gap Between Lines"), tr("<b>How long it waits between saying things while parked.</b>"), ""},
-    {"GoodGirlSession", tr("Session Length"), tr("<b>How long it keeps going after you park before it gives up and goes quiet.</b><br><br>Shorter is kinder to the battery."), ""},
     {"RandomThemes", tr("Random Themes"), tr("<b>Pick a random theme between each drive</b> from the themes you have downloaded. Great for variety without changing settings while driving."), "../../frogpilot/assets/toggle_icons/icon_random_themes.png"},
     {"StartupAlert", tr("Startup Alert"), tr("<b>Customize the \"Startup Alert\" message</b> shown at the start of each drive."), "../../frogpilot/assets/toggle_icons/icon_message.png"}
   };
@@ -626,20 +621,6 @@ FrogPilotThemesPanel::FrogPilotThemesPanel(FrogPilotSettingsWindow *parent, bool
       });
       themeToggle = startupAlertButton;
 
-    } else if (param == "SissyModeCruelty") {
-      // Was falling through to the plain ParamControl below, which renders an on/off switch and
-      // writes "0"/"1" — so 2, 4 and 5 were unreachable and the dial did nothing.
-      std::map<float, QString> crueltyLabels{{1, tr("1 - Occasional")}, {2, tr("2 - Regular")},
-                                             {3, tr("3 - Frequent")}, {4, tr("4 - Harsh")},
-                                             {5, tr("5 - Relentless")}};
-      themeToggle = new FrogPilotParamValueControl(param, title, desc, icon, 1, 5, QString(), crueltyLabels);
-
-    } else if (param == "GoodGirlInterval") {
-      themeToggle = new FrogPilotParamValueControl(param, title, desc, icon, 60, 1800, tr(" seconds"), std::map<float, QString>(), 30);
-
-    } else if (param == "GoodGirlSession") {
-      themeToggle = new FrogPilotParamValueControl(param, title, desc, icon, 5, 60, tr(" minutes"), std::map<float, QString>(), 5);
-
     } else {
       themeToggle = new ParamControl(param, title, desc, icon);
     }
@@ -674,8 +655,6 @@ FrogPilotThemesPanel::FrogPilotThemesPanel(FrogPilotSettingsWindow *parent, bool
   openDescriptions(forceOpenDescriptions, toggles);
 
   QObject::connect(static_cast<ToggleControl *>(toggles["CustomThemes"]), &ToggleControl::toggleFlipped, this, &FrogPilotThemesPanel::updateToggles);
-  QObject::connect(static_cast<ToggleControl *>(toggles["SissyMode"]), &ToggleControl::toggleFlipped, this, &FrogPilotThemesPanel::updateToggles);
-  QObject::connect(static_cast<ToggleControl *>(toggles["GoodGirlMode"]), &ToggleControl::toggleFlipped, this, &FrogPilotThemesPanel::updateToggles);
   QObject::connect(static_cast<ToggleControl*>(toggles["RandomThemes"]), &ToggleControl::toggleFlipped, [this](bool state) {
     if (state) {
       ConfirmationDialog::alert(tr("\"Random Themes\" only works with downloaded themes, so make sure you download the themes you want it to use!"), this);
@@ -867,12 +846,6 @@ void FrogPilotThemesPanel::updateToggles() {
     }
 
     bool setVisible = parent->tuningLevel >= parent->frogpilotToggleLevels[key].toDouble();
-
-    if (key == "SissyModeCruelty" || key == "GoodGirlMode") {
-      setVisible &= params.getBool("SissyMode");
-    } else if (key == "GoodGirlInterval" || key == "GoodGirlSession") {
-      setVisible &= params.getBool("SissyMode") && params.getBool("GoodGirlMode");
-    }
 
     if (key == "DistanceIconPack") {
       setVisible &= params.getBool("QOLVisuals") && params.getBool("OnroadDistanceButton");

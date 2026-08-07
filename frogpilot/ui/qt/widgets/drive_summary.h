@@ -34,8 +34,6 @@ private:
   QMap<QString, QLabel*> randomEventLabels;
 
   QMap<QString, QString> randomEventsMap;
-  // Sissy Mode offences share this widget: same per-drive delta, same sorted list.
-  QMap<QString, QString> sissyMap;
 
   QVBoxLayout *eventsListLayout;
 };
